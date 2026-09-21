@@ -1,0 +1,15 @@
+node_modules
+dist
+
+# 本地开发状态：D1 / R2 的模拟数据
+.wrangler
+
+# 本地密钥（SESSION_SECRET、ADMIN_PASSWORD_HASH）
+.dev.vars*
+!/.dev.vars.example
+
+worker-configuration.d.ts
+.DS_Store
+
+# 编辑器/插件的本地状态，含环境文件，不属于项目代码
+.claude

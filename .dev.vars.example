@@ -1,0 +1,23 @@
+# 复制成 .dev.vars 后填入真实值（本文件是模板，会进仓库）
+#
+# 部署到 Cloudflare 时用 wrangler secret put 设置同名变量。
+
+# 管理员账号（非敏感，也可以直接放 wrangler.jsonc 的 vars）
+ADMIN_USER=admin
+
+# 管理员密码的 sha256，用 `npm run hash-password -- 你的密码` 生成
+ADMIN_PASSWORD_HASH=
+
+# 签发登录会话 token 的密钥，随便一串长随机值
+SESSION_SECRET=
+
+# IP 加盐哈希用的盐
+IP_SALT=
+
+# R2 自定义域名，留空则图片走 Worker 代理（本地开发用）
+IMAGE_BASE_URL=
+
+# 可选：配了才能在删除图片时立即清理 CDN 缓存
+# 不配则靠 TTL 过期（此时缓存头会自动降为 5 分钟）
+CF_ZONE_ID=
+CF_CACHE_PURGE_TOKEN=

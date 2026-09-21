@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "vaelora",
+  "compatibility_date": "2026-09-19",
+  "main": "./worker/index.ts",
+  "assets": {
+    "not_found_handling": "single-page-application"
+  },
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "vaelora-images"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "vaelora",
+      "database_id": "REPLACE_ME_本地开发不需要填"
+    }
+  ],
+  "vars": {
+    // 单文件上限 8MB。客户端会先压缩到 ~1600px，正常远低于此值。
+    "MAX_UPLOAD_BYTES": "8388608",
+    // IP 只存加盐哈希，不落明文。上线前用 secret 覆盖。
+    "IP_SALT": "dev-only-salt-change-in-production",
+    // R2 自定义域名。留空 = 图片走 Worker 代理（本地开发）。
+    // 生产填成 https://img.你的域名，图片就不再消耗 Worker 请求。
+    "IMAGE_BASE_URL": ""
+  }
+}

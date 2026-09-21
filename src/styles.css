@@ -1,0 +1,541 @@
+:root {
+  --surface: #16161d;
+  --border: #26262f;
+  --text: #ececf1;
+  --muted: #8b8b9a;
+  --accent: #6d5efc;
+  --danger: #ff5a5f;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  /* 兜底底色，渐变在 body::before 上 */
+  background: #050514;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+
+/*
+ * 深空渐变 + 双层星云。
+ * 用 fixed 伪元素而不是 background-attachment: fixed —— 后者在 iOS Safari 上
+ * 要么被忽略、要么渲染异常。固定在视口同时避免长页面把渐变拉伸变形。
+ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 10%, rgba(88, 80, 200, 0.25), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 85% 80%, rgba(60, 100, 220, 0.18), transparent 60%),
+    linear-gradient(180deg, #050514 0%, #0a0a2a 55%, #12123a 100%);
+}
+
+.starfield {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.app {
+  position: relative;
+  /* 压在星空层之上 */
+  z-index: 2;
+  min-height: 100dvh;
+  padding: calc(16px + var(--safe-top)) 16px calc(96px + var(--safe-bottom));
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.header h1 {
+  margin: 0 0 16px;
+  font-size: 22px;
+  letter-spacing: 0.05em;
+  /* 星空底上的光晕，和标题一起压住深色背景 */
+  text-shadow: 0 0 24px rgba(150, 170, 255, 0.45);
+  cursor: pointer;
+  width: fit-content;
+}
+
+/* ── 提示条 ─────────────────────────────── */
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.banner--error {
+  background: rgba(255, 90, 95, 0.12);
+  border: 1px solid rgba(255, 90, 95, 0.35);
+  color: #ffb3b5;
+}
+
+.banner button {
+  min-width: 44px;
+  min-height: 44px;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.state {
+  padding: 48px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ── 首页：八个主题栏位 ─────────────────── */
+.themes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.theme {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  overflow: hidden;
+  /* 半透明而非 backdrop-filter：一屏 24 个模糊层会让中端机滚动掉帧 */
+  background: rgba(18, 18, 32, 0.82);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme:active {
+  opacity: 0.85;
+}
+
+.theme__frame {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 10, 26, 0.55);
+}
+
+.theme__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.theme__empty {
+  font-size: 12px;
+  color: #4a4a58;
+}
+
+.theme__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 8px 10px 10px;
+}
+
+.theme__name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.theme__count {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ── 二级页 ─────────────────────────────── */
+.detailbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.detailbar__back {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  margin-left: -10px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.detailbar__title {
+  flex: 1;
+  margin: 0;
+  font-size: 18px;
+}
+
+.detailbar__count {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 560px) {
+  .grid,
+  .themes {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.card {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(18, 18, 32, 0.82);
+}
+
+.card__frame {
+  /* 没有宽高信息时兜底成正方形，避免布局塌陷 */
+  aspect-ratio: 1 / 1;
+}
+
+.card__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.card__delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.card__delete:active {
+  background: var(--danger);
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+}
+
+.more button {
+  min-height: 44px;
+  padding: 0 24px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.more button:disabled {
+  opacity: 0.5;
+}
+
+/* ── 底部栏：长按入口 / 上传按钮 ────────── */
+.bottombar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 12px 16px calc(12px + var(--safe-bottom));
+  /* 半透明遮罩而不是实色：底部栏压在星空上，实色会切出一条突兀的暗带 */
+  background: linear-gradient(to top, rgba(6, 6, 22, 0.82) 55%, transparent);
+}
+
+/* 未登录：隐形长按区。不显示任何文案，只在按住时出现一条细进度线。 */
+.bottombar--secret {
+  height: calc(64px + var(--safe-bottom));
+  padding: 0;
+  display: flex;
+  align-items: flex-end;
+  /* iOS 长按会触发系统菜单/选中文本，必须屏蔽 */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+
+.bottombar__progress {
+  height: 3px;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.05s linear;
+}
+
+.bottombar__upload {
+  display: block;
+  width: 100%;
+  max-width: 688px;
+  margin: 0 auto;
+  min-height: 52px;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.bottombar__upload:active {
+  opacity: 0.85;
+}
+
+.bottombar__logout {
+  display: block;
+  margin: 8px auto 0;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* ── 上传队列 ───────────────────────────── */
+.jobs {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(84px + var(--safe-bottom));
+  max-width: 688px;
+  margin: 0 auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  border-radius: 12px;
+  background: rgba(22, 22, 29, 0.94);
+  border: 1px solid var(--border);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.job {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.job__thumb {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 6px;
+  background: var(--border) center / cover no-repeat;
+}
+
+.job__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.job__name {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.job__error {
+  font-size: 12px;
+  color: #ffb3b5;
+}
+
+.job__bar {
+  margin-top: 5px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.job__fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s ease-out;
+}
+
+.job--done .job__fill {
+  background: #3ddc84;
+}
+
+/* ── 模态框 ─────────────────────────────── */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.modal__panel {
+  width: 100%;
+  max-width: 360px;
+  padding: 20px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.modal__title {
+  margin: 0 0 16px;
+  font-size: 16px;
+}
+
+.modal__error {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #ffb3b5;
+}
+
+.modal__note {
+  margin: 0 0 16px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.modal__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.field span {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.field input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #101016;
+  color: var(--text);
+  font-size: 16px; /* 小于 16px 时 iOS 会自动放大页面 */
+}
+
+.field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.btn {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn--ghost {
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+}
+
+.btn--primary {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+}
+
+/* ── 主题选择 ───────────────────────────── */
+.picker {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.picker__item {
+  width: 100%;
+  min-height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #101016;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.picker__item:active {
+  border-color: var(--accent);
+}
