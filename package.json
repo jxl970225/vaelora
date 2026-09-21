@@ -8,6 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "npm run build && wrangler deploy",
+    "deploy:check": "bash scripts/deploy.sh --check",
+    "deploy:setup": "bash scripts/deploy.sh",
     "typecheck": "tsc -p worker/tsconfig.json --noEmit && tsc -p tsconfig.json --noEmit",
     "hash-password": "node scripts/hash-password.mjs",
     "cf-typegen": "wrangler types",
