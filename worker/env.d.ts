@@ -1,6 +1,5 @@
 interface Env {
   BUCKET: R2Bucket;
-  DB: D1Database;
   MAX_UPLOAD_BYTES: string;
   IP_SALT: string;
   /** 管理员账号，普通变量即可（非敏感） */
@@ -14,7 +13,4 @@ interface Env {
    * （本地开发用）。生产建议配上，否则每次看图都消耗一次 Worker 请求。
    */
   IMAGE_BASE_URL: string;
-  /** 缓存清理所需的 Zone ID 与 API token，不配则删除后依赖 CDN TTL 自然过期 */
-  CF_ZONE_ID?: string;
-  CF_CACHE_PURGE_TOKEN?: string;
 }

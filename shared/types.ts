@@ -1,32 +1,26 @@
-export interface GalleryItem {
-  id: string;
-  theme: string;
-  bytes: number;
+/** 一级：首页展示的主题封面。文件名固定为 {主题号}.jpg，没有对应文件就不返回。 */
+export interface ThemeSummary {
+  index: number;
+  name: string;
+  coverUrl: string;
+  /** 该主题目录下有没有二级图片 */
+  hasImages: boolean;
+}
+
+/** 二级：主题目录下的一张图片 */
+export interface ThemeImage {
+  seq: number;
+  key: string;
+  url: string;
+  size: number;
   width: number | null;
   height: number | null;
-  createdAt: number;
-  url: string;
 }
 
-export interface GalleryPage {
-  items: GalleryItem[];
-  nextCursor: string | null;
-}
-
-/** 首页信息流的一组：一个主题 + 该主题最新的一页图片 */
-export interface FeedSection {
-  theme: string;
+export interface ThemeImages {
+  index: number;
   name: string;
-  count: number;
-  items: GalleryItem[];
-  nextCursor: string | null;
-}
-
-export interface UploadSession {
-  id: string;
-  key: string;
-  theme: string;
-  uploadUrl: string;
+  items: ThemeImage[];
 }
 
 export interface ApiError {

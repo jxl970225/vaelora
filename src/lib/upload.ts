@@ -1,31 +1,66 @@
 import { compress } from './compress';
-import type { GalleryItem, UploadSession } from '../../shared/types';
 
-const MAX_ATTEMPTS = 3;
+export type UploadLevel = 'cover' | 'image';
+
+export interface UploadOptions {
+  level: UploadLevel;
+  themeIndex: number;
+  token: string;
+  onProgress?: (pct: number) => void;
+  /** 压缩完成即回调，用于立刻显示本地预览 */
+  onPreview?: (previewUrl: string) => void;
+}
+
+export interface UploadResult {
+  key: string;
+  url: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  previewUrl: string;
+}
 
 /**
- * 必须用 XMLHttpRequest 而不是 fetch —— fetch 没有上传进度事件，
- * 移动端弱网下没有进度条用户会以为卡死。
+ * 一次请求完成上传。
+ *
+ * 之前是「建会话 → 传字节 → 确认」三步，那套是为数据库里两阶段状态设计的。
+ * 现在没有数据库，写进 R2 就是生效，一步就够。
+ *
+ * 仍然用 XMLHttpRequest：fetch 没有上传进度事件，移动端弱网下没有进度条
+ * 用户会以为卡死。
  */
-function putWithProgress(
-  url: string,
-  blob: Blob,
-  token: string,
-  onProgress: (pct: number) => void
-): Promise<void> {
-  return new Promise((resolve, reject) => {
+export async function uploadImage(file: File, options: UploadOptions): Promise<UploadResult> {
+  const { blob, width, height } = await compress(file);
+
+  // 立刻给出本地预览，用户不用盯着白屏等上传
+  const previewUrl = URL.createObjectURL(blob);
+  options.onPreview?.(previewUrl);
+
+  const query = new URLSearchParams({
+    level: options.level,
+    theme: String(options.themeIndex),
+    width: String(width),
+    height: String(height),
+  });
+
+  const result = await new Promise<Omit<UploadResult, 'previewUrl'>>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('PUT', url);
+    xhr.open('POST', `/api/uploads?${query}`);
     xhr.setRequestHeader('content-type', blob.type);
-    xhr.setRequestHeader('authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('authorization', `Bearer ${options.token}`);
 
     xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) onProgress(event.loaded / event.total);
+      if (event.lengthComputable) options.onProgress?.(event.loaded / event.total);
     };
+
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        onProgress(1);
-        resolve();
+        options.onProgress?.(1);
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new Error('服务端返回了无法解析的内容'));
+        }
         return;
       }
       let message = `上传失败 (${xhr.status})`;
@@ -41,77 +76,6 @@ function putWithProgress(
     xhr.onabort = () => reject(new Error('上传已取消'));
     xhr.send(blob);
   });
-}
 
-async function createSession(blob: Blob, theme: string, token: string): Promise<UploadSession> {
-  const res = await fetch('/api/uploads', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-    body: JSON.stringify({ contentType: blob.type, bytes: blob.size, theme }),
-  });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? '创建上传会话失败');
-  }
-  return (await res.json()) as UploadSession;
-}
-
-export interface UploadResult {
-  item: GalleryItem;
-}
-
-export interface UploadOptions {
-  theme: string;
-  token: string;
-  onProgress?: (pct: number) => void;
-  onPreview?: (previewUrl: string) => void;
-}
-
-export async function uploadImage(file: File, options: UploadOptions): Promise<UploadResult> {
-  const { blob, width, height } = await compress(file);
-
-  // 立刻给出本地预览，用户不用盯着白屏等上传
-  const previewUrl = URL.createObjectURL(blob);
-  options.onPreview?.(previewUrl);
-
-  const session = await createSession(blob, options.theme, options.token);
-
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      await putWithProgress(session.uploadUrl, blob, options.token, (pct) =>
-        options.onProgress?.(pct)
-      );
-      lastError = undefined;
-      break;
-    } catch (error) {
-      lastError = error;
-      if (attempt < MAX_ATTEMPTS) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** (attempt - 1)));
-      }
-    }
-  }
-  if (lastError) throw lastError;
-
-  const commit = await fetch(`/api/uploads/${session.id}/commit`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${options.token}` },
-    body: JSON.stringify({ width, height }),
-  });
-  if (!commit.ok) {
-    const body = (await commit.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? '确认上传失败');
-  }
-
-  return {
-    item: {
-      id: session.id,
-      theme: options.theme,
-      bytes: blob.size,
-      width,
-      height,
-      createdAt: Date.now(),
-      url: `/api/images/${session.id}/raw`,
-    },
-  };
+  return { ...result, previewUrl };
 }

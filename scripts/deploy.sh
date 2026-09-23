@@ -2,18 +2,19 @@
 #
 # vaelora 部署脚本
 #
-#   ./scripts/deploy.sh           完整流程：检查 → 建资源 → 部署 → 迁移
+#   ./scripts/deploy.sh           完整流程：检查 → 设 secret → 部署
 #   ./scripts/deploy.sh --check    只做检查，不改动任何东西
 #
-# 设计成幂等的：已存在的资源不会重复创建，已设的 secret 不会覆盖。
-# 重复执行是安全的。
+# 幂等的：已设的 secret 不会覆盖，重复执行安全。
+#
+# 注意这里**没有数据库**——图片直接按固定结构存在 R2 里
+#   {主题号}.jpg          一级：主题封面
+#   {主题号}/{主题号}-{序号}.jpg   二级：该主题的图片
+# 所以不需要建库、不需要迁移。
 
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-WORKER_NAME="vaelora"
-DB_NAME="vaelora"
-BUCKET_NAME="vaelora"
 CONFIG="wrangler.jsonc"
 
 # 这两个是随机值，脚本可以自己生成；ADMIN_PASSWORD_HASH 需要你输密码
@@ -40,34 +41,8 @@ json_lookup() {
   "
 }
 
-# 调用 wrangler 并返回其中的 JSON。
-#
-# 关键：命令失败时直接终止，不静默当成"空结果"。
-# wrangler 有些子命令失败时退出码仍是 0（比如未登录时的 whoami），
-# 只看退出码会把"没登录"误判成"资源不存在"，然后在错误的前提上继续跑。
-run_json() {
-  local desc="$1"; shift
-  local out
-  if ! out=$("$@" 2>&1); then
-    die "${desc}失败：$(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
-  fi
-
-  local json
-  json=$(printf '%s' "$out" | node -e "
-    let s='';
-    process.stdin.on('data', c => s += c).on('end', () => {
-      const i = s.indexOf('['), j = s.indexOf('{');
-      const k = i < 0 ? j : (j < 0 ? i : Math.min(i, j));
-      console.log(k < 0 ? '' : s.slice(k));
-    });
-  ")
-
-  [ -n "$json" ] || die "${desc}返回的内容无法解析，原始输出：$(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
-  printf '%s' "$json"
-}
-
 # ── 1. 环境 ──────────────────────────────────────────
-step "1/6 环境检查"
+step "1/4 环境检查"
 
 command -v node >/dev/null 2>&1 || die "未找到 node"
 NODE_MAJOR=$(node -p "process.versions.node.split('.')[0]")
@@ -86,84 +61,33 @@ WHOAMI_OUT=$(npx wrangler whoami 2>&1)
 if printf '%s' "$WHOAMI_OUT" | grep -qiE "not authenticated|CLOUDFLARE_API_TOKEN"; then
   die "未登录 Cloudflare，先运行: npx wrangler login"
 fi
-
-ACCOUNT=$(printf '%s' "$WHOAMI_OUT" | grep -oE '[0-9a-f]{32}' | head -1)
 ok "已登录 Cloudflare"
+ACCOUNT=$(printf '%s' "$WHOAMI_OUT" | grep -oE '[0-9a-f]{32}' | head -1)
 [ -n "$ACCOUNT" ] && info "Account ID: $ACCOUNT"
 
 # ── 2. 配置 ──────────────────────────────────────────
-step "2/6 配置检查"
+step "2/4 配置检查"
 
-DB_PLACEHOLDER=$(node -e "
-  const s = require('fs').readFileSync('$CONFIG','utf8');
-  const m = s.match(/\"database_id\"\s*:\s*\"([^\"]*)\"/);
-  console.log(!m || /REPLACE|TODO|CHANGEME/i.test(m[1]) ? (m ? m[1] : 'MISSING') : '');
+BUCKET=$(node -e "
+  const fs = require('fs');
+  const s = fs.readFileSync('$CONFIG','utf8').replace(/^\s*\/\/.*\$/gm,'');
+  try { console.log(JSON.parse(s).r2_buckets?.[0]?.bucket_name ?? ''); } catch { console.log(''); }
 ")
+[ -n "$BUCKET" ] || die "${CONFIG} 里没配置 R2 桶"
+ok "R2 桶绑定：${BUCKET}"
 
-if [ -n "$DB_PLACEHOLDER" ]; then
-  warn "$CONFIG 里的 database_id 尚未填写（当前: ${DB_PLACEHOLDER}）"
+# 桶在 Cloudflare 那边必须已存在，否则部署会失败
+BUCKET_LIST=$(npx wrangler r2 bucket list --json 2>&1) || die "查询 R2 桶列表失败"
+if printf '%s' "$BUCKET_LIST" | grep -q "\"$BUCKET\""; then
+  ok "桶确实存在"
+elif [ "$CHECK_ONLY" -eq 1 ]; then
+  warn "桶不存在（需要先在后台或 wrangler r2 bucket create 创建）"
 else
-  ok "database_id 已配置"
+  die "R2 桶 ${BUCKET} 不存在，先创建：npx wrangler r2 bucket create ${BUCKET}"
 fi
 
-# ── 3. 云端资源 ──────────────────────────────────────
-step "3/6 云端资源"
-
-DB_LIST=$(run_json "查询 D1 列表" npx wrangler d1 list --json)
-DB_ID=$(json_lookup "$DB_LIST" "const x=(Array.isArray(d)?d:(d.result||[])).find(v=>v.name==='$DB_NAME'); console.log(x?(x.uuid||x.id||''):'')")
-
-if [ -n "$DB_ID" ]; then
-  ok "D1 数据库 $DB_NAME 已存在"
-  info "id: $DB_ID"
-else
-  warn "D1 数据库 $DB_NAME 不存在"
-  if [ "$CHECK_ONLY" -eq 1 ]; then
-    info "需要创建（--check 模式不执行）"
-  else
-    info "创建中…"
-    CREATE_OUT=$(npx wrangler d1 create "$DB_NAME" 2>&1) || die "创建失败：$CREATE_OUT"
-    DB_ID=$(json_lookup "$(run_json "重新查询 D1 列表" npx wrangler d1 list --json)" \
-      "const x=(Array.isArray(d)?d:(d.result||[])).find(v=>v.name==='$DB_NAME'); console.log(x?(x.uuid||x.id||''):'')")
-    [ -n "$DB_ID" ] || die "创建后仍未取到 database_id，请手动查看 wrangler d1 list"
-    ok "已创建，id: $DB_ID"
-  fi
-fi
-
-# 把真实的 id 写回配置文件
-if [ -n "$DB_ID" ] && [ -n "$DB_PLACEHOLDER" ]; then
-  if [ "$CHECK_ONLY" -eq 1 ]; then
-    info "会把 database_id 写入 ${CONFIG}（--check 模式不执行）"
-  else
-    DB_ID="$DB_ID" node -e "
-      const fs = require('fs');
-      const s = fs.readFileSync('$CONFIG','utf8');
-      fs.writeFileSync('$CONFIG', s.replace(
-        /(\"database_id\"\s*:\s*\")[^\"]*(\")/,
-        '\$1' + process.env.DB_ID + '\$2'
-      ));
-    " || die "写入 database_id 失败"
-    ok "database_id 已写入 $CONFIG"
-  fi
-fi
-
-BUCKET_LIST=$(run_json "查询 R2 桶列表" npx wrangler r2 bucket list --json)
-BUCKET=$(json_lookup "$BUCKET_LIST" "const x=(Array.isArray(d)?d:(d.result||d.buckets||[])).find(v=>(v.name||v.bucket_name)==='$BUCKET_NAME'); console.log(x?'yes':'')")
-
-if [ -n "$BUCKET" ]; then
-  ok "R2 桶 ${BUCKET_NAME} 已存在"
-else
-  warn "R2 桶 ${BUCKET_NAME} 不存在"
-  if [ "$CHECK_ONLY" -eq 1 ]; then
-    info "需要创建（--check 模式不执行）"
-  else
-    info "创建中…"
-    npx wrangler r2 bucket create "$BUCKET_NAME" >/dev/null 2>&1 \
-      && ok "已创建" || die "创建 R2 桶失败"
-  fi
-fi
-
-# ── 4. Secrets ───────────────────────────────────────
-step "4/6 Secrets"
+# ── 3. Secrets ───────────────────────────────────────
+step "3/4 Secrets"
 
 # secret list 在 Worker 还没创建时会报错，那是首次部署的正常情况，当作"还没有 secret"；
 # 但认证类错误必须暴露出来，否则会在错误的结论上继续跑。
@@ -178,6 +102,7 @@ SECRET_LIST=$(printf '%s' "$SECRET_OUT" | node -e "
     console.log(i < 0 ? '[]' : s.slice(i));
   });
 ")
+
 has_secret() {
   json_lookup "$SECRET_LIST" "const x=(Array.isArray(d)?d:(d.result||[])).some(v=>v.name==='$1'); console.log(x?'yes':'')"
 }
@@ -201,6 +126,7 @@ elif [ "$CHECK_ONLY" -eq 1 ]; then
 else
   echo
   info "需要设置管理员密码（用于登录上传）"
+  info "账号名固定为 admin，想改的话改 ${CONFIG} 里的 ADMIN_USER"
   printf '    密码: '
   read -r -s ADMIN_PW
   echo
@@ -217,15 +143,15 @@ else
     && ok "$PASSWORD_SECRET 已设置" || die "设置失败"
 fi
 
-# ── 5. 构建与部署 ────────────────────────────────────
+# ── 4. 构建与部署 ────────────────────────────────────
 if [ "$CHECK_ONLY" -eq 1 ]; then
-  step "5/6 构建与部署"
+  step "4/4 构建与部署"
   info "跳过（--check 模式）"
   printf '\n\033[1;32m检查完成。\033[0m去掉 --check 即执行实际部署。\n\n'
   exit 0
 fi
 
-step "5/6 构建与部署"
+step "4/4 构建与部署"
 
 npm run build >/dev/null 2>&1 || die "构建失败，请单独运行 npm run build 查看错误"
 ok "构建完成"
@@ -235,24 +161,11 @@ ok "部署完成"
 
 WORKER_URL=$(printf '%s' "$DEPLOY_OUT" | grep -oE 'https://[a-zA-Z0-9._-]+\.workers\.dev' | head -1)
 
-# ── 6. 远程迁移 ──────────────────────────────────────
-step "6/6 数据库迁移"
-
-MIGRATE_OUT=$(npx wrangler d1 migrations apply "$DB_NAME" --remote 2>&1) \
-  || { printf '%s\n' "$MIGRATE_OUT"; die "迁移失败"; }
-
-if printf '%s' "$MIGRATE_OUT" | grep -qiE "no migrations|nothing to apply"; then
-  ok "无待应用的迁移"
-else
-  ok "迁移已应用"
-fi
-
-# ── 完成 ─────────────────────────────────────────────
 printf '\n\033[1;32m部署完成\033[0m\n\n'
 if [ -n "$WORKER_URL" ]; then
-  printf '  访问地址: \033[1;36m%s\033[0m\n' "$WORKER_URL"
+  printf '  workers.dev 地址: %s\n' "$WORKER_URL"
+  printf '  \033[33m注意：workers.dev 在国内网络下不可达，需要绑自定义域名\033[0m\n'
 else
-  info "在 Cloudflare 后台的 Workers 页面可以找到访问地址"
+  info "在 Cloudflare 后台的 Workers 页面可以看到访问地址"
 fi
-printf '\n  提示: 图片默认走 Worker 代理，每次浏览都消耗一次请求。\n'
-printf '        绑定 R2 自定义域名并在 %s 里填写 IMAGE_BASE_URL 可省下这笔开销。\n\n' "$CONFIG"
+printf '\n'

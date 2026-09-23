@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BottomBar } from './components/BottomBar';
-import { Feed } from './components/Feed';
 import { LoginModal } from './components/LoginModal';
 import { ThemePicker } from './components/ThemePicker';
 import { ThemeDetail } from './components/ThemeDetail';
+import { ThemeList } from './components/ThemeList';
 import { Starfield } from './components/Starfield';
-import { deleteImage, fetchThemeImages } from './lib/api';
-import { uploadImage } from './lib/upload';
+import { deleteImage, fetchThemeImages, fetchThemes } from './lib/api';
+import { uploadImage, type UploadLevel } from './lib/upload';
 import { goHome, useRoute } from './lib/route';
-import { themeName } from '../shared/themes';
-import type { GalleryItem } from '../shared/types';
+import { THEMES } from '../shared/themes';
+import type { ThemeImage, ThemeSummary } from '../shared/types';
 
 interface Job {
   key: string;
@@ -18,6 +18,11 @@ interface Job {
   progress: number;
   status: 'queued' | 'uploading' | 'done' | 'error';
   error?: string;
+}
+
+interface PendingUpload {
+  level: UploadLevel;
+  themeIndex: number;
 }
 
 export default function App() {
@@ -34,50 +39,45 @@ export default function App() {
   const [showLogin, setShowLogin] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
 
-  // 首页信息流的数据由 Feed 自己管，这里只用一个计数器通知它重新拉取
-  const [feedReload, setFeedReload] = useState(0);
+  const [themes, setThemes] = useState<ThemeSummary[]>([]);
+  const [themesLoading, setThemesLoading] = useState(true);
 
-  // 二级页仍保留（可通过 #/theme/xxx 直接访问），数据在这里管
-  const [items, setItems] = useState<GalleryItem[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [images, setImages] = useState<ThemeImage[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 用 ref 而不是 state：file input 的 onChange 触发时读到的必须是最新值
-  const pendingThemeRef = useRef<string | null>(null);
+  const pendingRef = useRef<PendingUpload | null>(null);
 
-  const loadTheme = useCallback(async (theme: string) => {
+  const loadThemes = useCallback(async () => {
+    setThemesLoading(true);
+    setError(null);
+    try {
+      setThemes(await fetchThemes());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '加载失败');
+    } finally {
+      setThemesLoading(false);
+    }
+  }, []);
+
+  const loadTheme = useCallback(async (index: number) => {
     setDetailLoading(true);
     setError(null);
     try {
-      const page = await fetchThemeImages(theme, null);
-      setItems(page.items);
-      setCursor(page.nextCursor);
+      const data = await fetchThemeImages(index);
+      setImages(data.items);
     } catch (e) {
-      setError(e instanceof Error ? e.message : '加载图片失败');
+      setError(e instanceof Error ? e.message : '加载失败');
     } finally {
       setDetailLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (route.name === 'theme') void loadTheme(route.theme);
-  }, [route, loadTheme]);
-
-  const loadMore = useCallback(async () => {
-    if (route.name !== 'theme' || !cursor || loadingMore) return;
-    setLoadingMore(true);
-    try {
-      const page = await fetchThemeImages(route.theme, cursor);
-      setItems((prev) => [...prev, ...page.items]);
-      setCursor(page.nextCursor);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败');
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [route, cursor, loadingMore]);
+    if (route.name === 'home') void loadThemes();
+    else void loadTheme(route.index);
+  }, [route, loadThemes, loadTheme]);
 
   // ── 上传 ──────────────────────────────────────────
   const patchJob = (key: string, patch: Partial<Job>) => {
@@ -86,30 +86,30 @@ export default function App() {
 
   function handleUploadClick() {
     if (route.name === 'theme') {
-      // 二级页：自动归属当前主题
-      pendingThemeRef.current = route.theme;
+      // 二级页：上传的是该主题的图片，自动归属
+      pendingRef.current = { level: 'image', themeIndex: route.index };
       fileInputRef.current?.click();
     } else {
-      // 首页：先选主题
+      // 首页：上传的是某个主题的封面，先选主题
       setShowPicker(true);
     }
   }
 
-  function handlePickTheme(theme: string) {
+  function handlePickTheme(themeIndex: number) {
     setShowPicker(false);
-    pendingThemeRef.current = theme;
+    pendingRef.current = { level: 'cover', themeIndex };
     // 仍在这次点击的手势上下文内，file input 才打得开
     fileInputRef.current?.click();
   }
 
   async function handleFiles(files: FileList | null) {
-    const theme = pendingThemeRef.current;
+    const pending = pendingRef.current;
     if (fileInputRef.current) fileInputRef.current.value = '';
-    if (!files?.length || !token || !theme) return;
+    if (!files?.length || !token || !pending) return;
 
     const picked = Array.from(files);
-    const queued: Job[] = picked.map((file, index) => ({
-      key: `${Date.now()}-${index}-${file.name}`,
+    const queued: Job[] = picked.map((file, i) => ({
+      key: `${Date.now()}-${i}-${file.name}`,
       name: file.name,
       previewUrl: '',
       progress: 0,
@@ -123,7 +123,8 @@ export default function App() {
       patchJob(job.key, { status: 'uploading' });
       try {
         await uploadImage(picked[i], {
-          theme,
+          level: pending.level,
+          themeIndex: pending.themeIndex,
           token,
           onPreview: (url) => patchJob(job.key, { previewUrl: url }),
           onProgress: (pct) => patchJob(job.key, { progress: pct }),
@@ -139,23 +140,24 @@ export default function App() {
 
     window.setTimeout(() => setJobs((prev) => prev.filter((job) => job.status !== 'done')), 1200);
 
-    // 上传完重新拉取当前视图的数据
-    if (route.name === 'theme') await loadTheme(route.theme);
-    else setFeedReload((n) => n + 1);
+    // 上传完重新拉取当前视图
+    if (route.name === 'theme') await loadTheme(route.index);
+    else await loadThemes();
   }
 
   // ── 删除 ──────────────────────────────────────────
-  async function handleDelete(item: GalleryItem) {
+  async function handleDelete(item: ThemeImage) {
     if (!token) return;
     if (!window.confirm('删除这张图片？此操作不可撤销。')) return;
     try {
-      await deleteImage(item.id, token);
-      setItems((prev) => prev.filter((p) => p.id !== item.id));
-      setFeedReload((n) => n + 1);
+      await deleteImage(item.key, token);
+      setImages((prev) => prev.filter((p) => p.key !== item.key));
     } catch (e) {
       setError(e instanceof Error ? e.message : '删除失败');
     }
   }
+
+  const themeName = route.name === 'theme' ? (THEMES[route.index - 1]?.name ?? '') : '';
 
   return (
     <>
@@ -179,22 +181,20 @@ export default function App() {
 
         <main>
           {route.name === 'home' ? (
-            <Feed
-              isAdmin={isAdmin}
-              reloadSignal={feedReload}
-              onDelete={(item) => void handleDelete(item)}
-              onError={setError}
+            <ThemeList
+              themes={themes}
+              loading={themesLoading}
+              onOpen={(index) => {
+                window.location.hash = `#/theme/${index}`;
+              }}
             />
           ) : (
             <ThemeDetail
-              themeName={themeName(route.theme)}
-              items={items}
+              themeName={themeName}
+              items={images}
               isAdmin={isAdmin}
               loading={detailLoading}
-              loadingMore={loadingMore}
-              hasMore={cursor !== null}
               onBack={goHome}
-              onLoadMore={() => void loadMore()}
               onDelete={(item) => void handleDelete(item)}
             />
           )}

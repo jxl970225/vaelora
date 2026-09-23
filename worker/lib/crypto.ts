@@ -23,8 +23,3 @@ export function timingSafeEqual(a: string, b: string): boolean {
   }
   return diff === 0;
 }
-
-/** IP 只存加盐哈希，不落明文 */
-export function hashIp(ip: string, salt: string): Promise<string> {
-  return sha256Hex(`${salt}:${ip}`);
-}

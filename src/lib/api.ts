@@ -1,4 +1,4 @@
-import type { ApiError, FeedSection, GalleryPage } from '../../shared/types';
+import type { ApiError, ThemeImages, ThemeSummary } from '../../shared/types';
 
 async function readError(res: Response, fallback: string): Promise<string> {
   try {
@@ -20,28 +20,23 @@ export async function login(username: string, password: string): Promise<string>
   return body.token;
 }
 
-/** 首页信息流：按主题分组，每组带最新一页图片。单个请求拿全部。 */
-export async function fetchFeed(): Promise<FeedSection[]> {
-  const res = await fetch('/api/images/feed');
+/** 一级：主题封面。没有封面的主题不会出现在结果里。 */
+export async function fetchThemes(): Promise<ThemeSummary[]> {
+  const res = await fetch('/api/images/themes');
   if (!res.ok) throw new Error(await readError(res, '加载失败'));
-  const body = (await res.json()) as { sections: FeedSection[] };
-  return body.sections;
+  const body = (await res.json()) as { themes: ThemeSummary[] };
+  return body.themes;
 }
 
-export async function fetchThemeImages(
-  theme: string,
-  cursor?: string | null
-): Promise<GalleryPage> {
-  const url = new URL(`/api/images/themes/${theme}`, location.origin);
-  if (cursor) url.searchParams.set('cursor', cursor);
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(await readError(res, '加载图片失败'));
-  return (await res.json()) as GalleryPage;
+/** 二级：某个主题目录下的全部图片 */
+export async function fetchThemeImages(index: number): Promise<ThemeImages> {
+  const res = await fetch(`/api/images/themes/${index}`);
+  if (!res.ok) throw new Error(await readError(res, '加载失败'));
+  return (await res.json()) as ThemeImages;
 }
 
-export async function deleteImage(id: string, token: string): Promise<void> {
-  const res = await fetch(`/api/images/${id}`, {
+export async function deleteImage(key: string, token: string): Promise<void> {
+  const res = await fetch(`/api/uploads?key=${encodeURIComponent(key)}`, {
     method: 'DELETE',
     headers: { authorization: `Bearer ${token}` },
   });

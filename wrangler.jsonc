@@ -12,20 +12,14 @@
       "bucket_name": "vaelora"
     }
   ],
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "vaelora",
-      "database_id": "b307108d-4abd-4c4b-9b9a-58e163581da1"
-    }
-  ],
   "vars": {
     // 单文件上限 8MB。客户端会先压缩到 ~1600px，正常远低于此值。
     "MAX_UPLOAD_BYTES": "8388608",
-    // IP 只存加盐哈希，不落明文。上线前用 secret 覆盖。
+    // 管理员账号。非敏感，所以放 vars 而不是 secret。
+    "ADMIN_USER": "admin",
+    // IP 只存加盐哈希，不落明文。上线前用 wrangler secret put 覆盖掉这个 dev 值。
     "IP_SALT": "dev-only-salt-change-in-production",
-    // R2 自定义域名。留空 = 图片走 Worker 代理（本地开发）。
-    // 生产填成 https://img.你的域名，图片就不再消耗 Worker 请求。
+    // R2 自定义域名。留空 = 图片走 Worker 代理。生产填上可省下每次看图的 Worker 请求。
     "IMAGE_BASE_URL": ""
   }
 }

@@ -1,9 +1,12 @@
 # 复制成 .dev.vars 后填入真实值（本文件是模板，会进仓库）
 #
-# 部署到 Cloudflare 时用 wrangler secret put 设置同名变量。
-
-# 管理员账号（非敏感，也可以直接放 wrangler.jsonc 的 vars）
-ADMIN_USER=admin
+# ⚠️ 注意哪些变量**同时**需要配到生产环境：
+#
+#   ADMIN_USER      非敏感，放 wrangler.jsonc 的 vars（不在这个文件里配也行，
+#                   但生产必须配 —— 只配在本地会导致线上读不到，登录永远 401）
+#   IMAGE_BASE_URL  同上，放 wrangler.jsonc 的 vars
+#
+# 下面的这些是敏感值，本地放这里，生产用 wrangler secret put 或后台 Secret：
 
 # 管理员密码的 sha256，用 `npm run hash-password -- 你的密码` 生成
 ADMIN_PASSWORD_HASH=
@@ -11,7 +14,7 @@ ADMIN_PASSWORD_HASH=
 # 签发登录会话 token 的密钥，随便一串长随机值
 SESSION_SECRET=
 
-# IP 加盐哈希用的盐
+# IP 加盐哈希用的盐。wrangler.jsonc 里有个 dev 值，生产必须用 secret 覆盖它。
 IP_SALT=
 
 # 可选：配了才能在删除图片时立即清理 CDN 缓存
