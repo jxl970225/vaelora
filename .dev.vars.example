@@ -1,24 +1,11 @@
 # 复制成 .dev.vars 后填入真实值（本文件是模板，会进仓库）
 #
-# ⚠️ 注意哪些变量**同时**需要配到生产环境：
-#
-#   ADMIN_USER      非敏感，放 wrangler.jsonc 的 vars（不在这个文件里配也行，
-#                   但生产必须配 —— 只配在本地会导致线上读不到，登录永远 401）
-#   IMAGE_BASE_URL  同上，放 wrangler.jsonc 的 vars
-#
-# 下面的这些是敏感值，本地放这里，生产用 wrangler secret put 或后台 Secret：
+# 敏感值放这里（本地）和 Cloudflare Secret（生产）。
+# 非敏感的配置放 wrangler.jsonc 的 vars，两处共用同一份。
 
-# 管理员密码的 sha256，用 `npm run hash-password -- 你的密码` 生成
+# 管理员密码的 sha256，用 `npm run hash-password -- 你的密码` 生成。
+# 必须是 64 位十六进制 —— 填明文密码会导致登录永远返回 401。
 ADMIN_PASSWORD_HASH=
 
-# 签发登录会话 token 的密钥，随便一串长随机值
+# 签发登录 token 的密钥。随便一串长随机值，泄露的话别人能伪造登录凭证。
 SESSION_SECRET=
-
-# IP 加盐哈希用的盐。wrangler.jsonc 里有个 dev 值，生产必须用 secret 覆盖它。
-IP_SALT=
-
-# 可选：配了才能在删除图片时立即清理 CDN 缓存
-# 不配则靠 TTL 过期（此时缓存头会自动降为 5 分钟）
-# 需要 Zone.Cache Purge 权限的 API token
-CF_ZONE_ID=
-CF_CACHE_PURGE_TOKEN=

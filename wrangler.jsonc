@@ -12,14 +12,21 @@
       "bucket_name": "vaelora"
     }
   ],
+  "secrets": {
+    // 声明必需的 secret：部署时缺任何一个会直接失败并列出缺哪个，
+    // 而不是"部署成功、运行时才 500"。
+    "required": ["ADMIN_PASSWORD_HASH", "SESSION_SECRET"]
+  },
   "vars": {
+    // 这里只放非敏感配置。密码哈希和签名密钥一律走 secret ——
+    // 放 vars 是明文，会进 git 仓库。
+    //
     // 单文件上限 8MB。客户端会先压缩到 ~1600px，正常远低于此值。
     "MAX_UPLOAD_BYTES": "8388608",
-    // 管理员账号。非敏感，所以放 vars 而不是 secret。
+    // 管理员账号。非敏感，所以放这里。
     "ADMIN_USER": "admin",
-    // IP 只存加盐哈希，不落明文。上线前用 wrangler secret put 覆盖掉这个 dev 值。
-    "IP_SALT": "dev-only-salt-change-in-production",
-    // R2 自定义域名。留空 = 图片走 Worker 代理。生产填上可省下每次看图的 Worker 请求。
+    // R2 自定义域名。留空 = 图片走 Worker 代理。
+    // 生产填上（如 https://img.你的域名）可省下每次看图的 Worker 请求。
     "IMAGE_BASE_URL": ""
   }
 }

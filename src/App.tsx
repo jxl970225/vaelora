@@ -103,11 +103,21 @@ export default function App() {
   }
 
   async function handleFiles(files: FileList | null) {
-    const pending = pendingRef.current;
+    // 先把 FileList 拷成数组，再清空 input —— 顺序不能反。
+    // FileList 是活的：input.value = '' 会把已经拿到的那个 List 一并清空，
+    // 之后读 length 就是 0，表现为"选完图什么都没发生"。
+    const picked = files ? Array.from(files) : [];
     if (fileInputRef.current) fileInputRef.current.value = '';
-    if (!files?.length || !token || !pending) return;
 
-    const picked = Array.from(files);
+    if (picked.length === 0) return;
+
+    const pending = pendingRef.current;
+    if (!token || !pending) {
+      // 不要静默 return —— 那样用户只看到"点了没反应"，无从排查
+      setError('上传状态丢失，请重新点击上传按钮');
+      return;
+    }
+
     const queued: Job[] = picked.map((file, i) => ({
       key: `${Date.now()}-${i}-${file.name}`,
       name: file.name,

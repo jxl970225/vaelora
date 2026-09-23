@@ -4,16 +4,44 @@ import { sha256Hex, timingSafeEqual } from '../lib/crypto';
 
 export const admin = new Hono<{ Bindings: Env }>();
 
+/** sha256 的十六进制表示恒为 64 位 */
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/**
+ * 检查配置是否可用。
+ *
+ * 分两层：先看变量在不在，再看值的形态对不对。
+ * 只查"在不在"是不够的 —— 把明文密码填进 ADMIN_PASSWORD_HASH 也能通过，
+ * 然后卡在 401「账号或密码错误」，看着像密码输错了，实际是配置形态错了。
+ */
+function configProblem(env: Env): string | null {
+  const missing = (['ADMIN_USER', 'ADMIN_PASSWORD_HASH', 'SESSION_SECRET'] as const).filter(
+    (key) => !env[key]?.trim()
+  );
+  if (missing.length > 0) return `服务端未配置：${missing.join('、')}`;
+
+  // 从终端复制粘贴很容易带上尾部换行，这里统一去掉再判断
+  const hash = env.ADMIN_PASSWORD_HASH.trim().toLowerCase();
+  if (!SHA256_HEX.test(hash)) {
+    return (
+      `ADMIN_PASSWORD_HASH 格式不对：应该是 64 位十六进制的 sha256，` +
+      `当前是 ${hash.length} 位。用 npm run hash-password -- 你的密码 生成后重新粘贴。`
+    );
+  }
+
+  return null;
+}
+
 /** 两个值都先哈希再比较：长度一致，比较才是定长的，也不泄露用户名是否存在 */
 async function credentialsMatch(env: Env, username: string, password: string): Promise<boolean> {
   const [userGiven, userExpected] = await Promise.all([
     sha256Hex(username),
-    sha256Hex(env.ADMIN_USER),
+    sha256Hex(env.ADMIN_USER.trim()),
   ]);
   const [passGiven, passExpected] = await Promise.all([
     sha256Hex(password),
     // 环境变量里存的就是哈希，不再存明文
-    Promise.resolve(env.ADMIN_PASSWORD_HASH.toLowerCase()),
+    Promise.resolve(env.ADMIN_PASSWORD_HASH.trim().toLowerCase()),
   ]);
 
   const userOk = timingSafeEqual(userGiven, userExpected);
@@ -23,14 +51,8 @@ async function credentialsMatch(env: Env, username: string, password: string): P
 }
 
 admin.post('/login', async (c) => {
-  // 配置缺失时直接说清楚，不要让 undefined 参与哈希运算 ——
-  // 那样会返回一个看起来像"密码错误"的 401，能查很久才发现是根本没配。
-  const missing = (['ADMIN_USER', 'ADMIN_PASSWORD_HASH', 'SESSION_SECRET'] as const).filter(
-    (key) => !c.env[key]
-  );
-  if (missing.length > 0) {
-    return c.json({ error: `服务端未配置：${missing.join('、')}` }, 500);
-  }
+  const problem = configProblem(c.env);
+  if (problem) return c.json({ error: problem }, 500);
 
   const body = await c.req
     .json<{ username?: string; password?: string }>()
@@ -43,5 +65,5 @@ admin.post('/login', async (c) => {
     return c.json({ error: '账号或密码错误' }, 401);
   }
 
-  return c.json({ token: await issueToken(c.env.SESSION_SECRET) });
+  return c.json({ token: await issueToken(c.env.SESSION_SECRET.trim()) });
 });

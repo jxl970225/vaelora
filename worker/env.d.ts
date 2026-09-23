@@ -1,7 +1,6 @@
 interface Env {
   BUCKET: R2Bucket;
   MAX_UPLOAD_BYTES: string;
-  IP_SALT: string;
   /** 管理员账号，普通变量即可（非敏感） */
   ADMIN_USER: string;
   /** 管理员密码的 sha256（十六进制），必须用 wrangler secret put 存 */
