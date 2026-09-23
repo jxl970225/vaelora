@@ -40,6 +40,32 @@ json_lookup() {
   "
 }
 
+# 调用 wrangler 并返回其中的 JSON。
+#
+# 关键：命令失败时直接终止，不静默当成"空结果"。
+# wrangler 有些子命令失败时退出码仍是 0（比如未登录时的 whoami），
+# 只看退出码会把"没登录"误判成"资源不存在"，然后在错误的前提上继续跑。
+run_json() {
+  local desc="$1"; shift
+  local out
+  if ! out=$("$@" 2>&1); then
+    die "${desc}失败：$(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
+  fi
+
+  local json
+  json=$(printf '%s' "$out" | node -e "
+    let s='';
+    process.stdin.on('data', c => s += c).on('end', () => {
+      const i = s.indexOf('['), j = s.indexOf('{');
+      const k = i < 0 ? j : (j < 0 ? i : Math.min(i, j));
+      console.log(k < 0 ? '' : s.slice(k));
+    });
+  ")
+
+  [ -n "$json" ] || die "${desc}返回的内容无法解析，原始输出：$(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
+  printf '%s' "$json"
+}
+
 # ── 1. 环境 ──────────────────────────────────────────
 step "1/6 环境检查"
 
@@ -55,10 +81,13 @@ ok "Node $(node -v)"
 [ -d node_modules ] || die "依赖未安装，先运行: npm install"
 ok "依赖已安装"
 
-if ! npx wrangler whoami >/dev/null 2>&1; then
+# 不能只看退出码：wrangler 未登录时 whoami 依然返回 0，必须检查输出内容
+WHOAMI_OUT=$(npx wrangler whoami 2>&1)
+if printf '%s' "$WHOAMI_OUT" | grep -qiE "not authenticated|CLOUDFLARE_API_TOKEN"; then
   die "未登录 Cloudflare，先运行: npx wrangler login"
 fi
-ACCOUNT=$(npx wrangler whoami 2>/dev/null | grep -oE '[0-9a-f]{32}' | head -1)
+
+ACCOUNT=$(printf '%s' "$WHOAMI_OUT" | grep -oE '[0-9a-f]{32}' | head -1)
 ok "已登录 Cloudflare"
 [ -n "$ACCOUNT" ] && info "Account ID: $ACCOUNT"
 
@@ -80,7 +109,7 @@ fi
 # ── 3. 云端资源 ──────────────────────────────────────
 step "3/6 云端资源"
 
-DB_LIST=$(npx wrangler d1 list --json 2>/dev/null || echo '[]')
+DB_LIST=$(run_json "查询 D1 列表" npx wrangler d1 list --json)
 DB_ID=$(json_lookup "$DB_LIST" "const x=(Array.isArray(d)?d:(d.result||[])).find(v=>v.name==='$DB_NAME'); console.log(x?(x.uuid||x.id||''):'')")
 
 if [ -n "$DB_ID" ]; then
@@ -93,7 +122,7 @@ else
   else
     info "创建中…"
     CREATE_OUT=$(npx wrangler d1 create "$DB_NAME" 2>&1) || die "创建失败：$CREATE_OUT"
-    DB_ID=$(json_lookup "$(npx wrangler d1 list --json 2>/dev/null || echo '[]')" \
+    DB_ID=$(json_lookup "$(run_json "重新查询 D1 列表" npx wrangler d1 list --json)" \
       "const x=(Array.isArray(d)?d:(d.result||[])).find(v=>v.name==='$DB_NAME'); console.log(x?(x.uuid||x.id||''):'')")
     [ -n "$DB_ID" ] || die "创建后仍未取到 database_id，请手动查看 wrangler d1 list"
     ok "已创建，id: $DB_ID"
@@ -117,7 +146,7 @@ if [ -n "$DB_ID" ] && [ -n "$DB_PLACEHOLDER" ]; then
   fi
 fi
 
-BUCKET_LIST=$(npx wrangler r2 bucket list --json 2>/dev/null || echo '[]')
+BUCKET_LIST=$(run_json "查询 R2 桶列表" npx wrangler r2 bucket list --json)
 BUCKET=$(json_lookup "$BUCKET_LIST" "const x=(Array.isArray(d)?d:(d.result||d.buckets||[])).find(v=>(v.name||v.bucket_name)==='$BUCKET_NAME'); console.log(x?'yes':'')")
 
 if [ -n "$BUCKET" ]; then
@@ -136,7 +165,19 @@ fi
 # ── 4. Secrets ───────────────────────────────────────
 step "4/6 Secrets"
 
-SECRET_LIST=$(npx wrangler secret list --json 2>/dev/null || echo '[]')
+# secret list 在 Worker 还没创建时会报错，那是首次部署的正常情况，当作"还没有 secret"；
+# 但认证类错误必须暴露出来，否则会在错误的结论上继续跑。
+SECRET_OUT=$(npx wrangler secret list --json 2>&1)
+if printf '%s' "$SECRET_OUT" | grep -qiE "not authenticated|CLOUDFLARE_API_TOKEN"; then
+  die "登录状态失效，请重新运行: npx wrangler login"
+fi
+SECRET_LIST=$(printf '%s' "$SECRET_OUT" | node -e "
+  let s='';
+  process.stdin.on('data', c => s += c).on('end', () => {
+    const i = s.indexOf('[');
+    console.log(i < 0 ? '[]' : s.slice(i));
+  });
+")
 has_secret() {
   json_lookup "$SECRET_LIST" "const x=(Array.isArray(d)?d:(d.result||[])).some(v=>v.name==='$1'); console.log(x?'yes':'')"
 }
