@@ -13,18 +13,13 @@ export interface GalleryPage {
   nextCursor: string | null;
 }
 
-export interface ThemeCover {
-  id: string;
-  url: string;
-  width: number | null;
-  height: number | null;
-}
-
-export interface ThemeSummary {
-  id: string;
+/** 首页信息流的一组：一个主题 + 该主题最新的一页图片 */
+export interface FeedSection {
+  theme: string;
   name: string;
   count: number;
-  cover: ThemeCover | null;
+  items: GalleryItem[];
+  nextCursor: string | null;
 }
 
 export interface UploadSession {

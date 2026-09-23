@@ -10,9 +10,8 @@ interface Env {
   /** 签发会话 token 的密钥，必须用 wrangler secret put 存 */
   SESSION_SECRET: string;
   /**
-   * R2 自定义域名，例如 https://img.example.com。
-   * 留空则图片走 Worker 代理（本地开发用）——生产必须配上，
-   * 否则每次看图都消耗一次 Worker 请求，免费额度会被快速打满。
+   * R2 自定义域名，例如 https://img.example.com。留空则图片走 Worker 代理
+   * （本地开发用）。生产建议配上，否则每次看图都消耗一次 Worker 请求。
    */
   IMAGE_BASE_URL: string;
   /** 缓存清理所需的 Zone ID 与 API token，不配则删除后依赖 CDN TTL 自然过期 */

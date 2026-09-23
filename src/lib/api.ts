@@ -1,4 +1,4 @@
-import type { ApiError, GalleryPage, ThemeSummary } from '../../shared/types';
+import type { ApiError, FeedSection, GalleryPage } from '../../shared/types';
 
 async function readError(res: Response, fallback: string): Promise<string> {
   try {
@@ -20,11 +20,12 @@ export async function login(username: string, password: string): Promise<string>
   return body.token;
 }
 
-export async function fetchThemes(): Promise<ThemeSummary[]> {
-  const res = await fetch('/api/images/themes');
-  if (!res.ok) throw new Error(await readError(res, '加载主题失败'));
-  const body = (await res.json()) as { themes: ThemeSummary[] };
-  return body.themes;
+/** 首页信息流：按主题分组，每组带最新一页图片。单个请求拿全部。 */
+export async function fetchFeed(): Promise<FeedSection[]> {
+  const res = await fetch('/api/images/feed');
+  if (!res.ok) throw new Error(await readError(res, '加载失败'));
+  const body = (await res.json()) as { sections: FeedSection[] };
+  return body.sections;
 }
 
 export async function fetchThemeImages(

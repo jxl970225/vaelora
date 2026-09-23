@@ -1,31 +1,25 @@
 import { Hono } from 'hono';
 import { THEMES, isValidTheme } from '../../shared/themes';
 import { requireAdmin } from '../middleware';
-import type { GalleryItem, ThemeSummary } from '../../shared/types';
+import { publicUrl, purgeCdn } from '../lib/storage';
+import type { FeedSection, GalleryItem } from '../../shared/types';
 
 export const images = new Hono<{ Bindings: Env }>();
 
-const DEFAULT_PAGE_SIZE = 24;
+/** 首页每组最多展示的图片数（一级） */
+const FEED_PAGE_SIZE = 8;
+/** 二级页每次加载的图片数 */
+const DEFAULT_PAGE_SIZE = 9;
 const MAX_PAGE_SIZE = 60;
 
 interface GalleryRow {
   id: string;
   theme: string;
-  r2_key: string | null;
+  storage_path: string | null;
   bytes: number;
   width: number | null;
   height: number | null;
   created_at: number;
-}
-
-/**
- * 配了 R2 自定义域名就走直连（CDN 缓存，不消耗 Worker 请求）；
- * 没配则回落到 Worker 代理 —— 本地开发就是这条路径。
- */
-function publicUrl(env: Env, id: string, r2Key: string | null): string {
-  const base = env.IMAGE_BASE_URL?.trim();
-  if (base && r2Key) return `${base.replace(/\/+$/, '')}/${r2Key}`;
-  return `/api/images/${id}/raw`;
 }
 
 function toItem(env: Env, row: GalleryRow): GalleryItem {
@@ -36,62 +30,66 @@ function toItem(env: Env, row: GalleryRow): GalleryItem {
     width: row.width,
     height: row.height,
     createdAt: row.created_at,
-    url: publicUrl(env, row.id, row.r2_key),
+    url: publicUrl(env, row.id, row.storage_path),
   };
 }
 
-const GALLERY_COLUMNS = 'id, theme, r2_key, bytes, width, height, created_at';
+const GALLERY_COLUMNS = 'id, theme, storage_path, bytes, width, height, created_at';
 
 /**
- * 首页：八个主题栏位。
- * 始终返回全部 8 个（没图的 count=0、cover=null），顺序由 THEMES 决定，
- * 这样前端不需要处理"某个主题不存在"的情况。
+ * 首页信息流：按主题分组，每组带上最新的一页图片。
+ *
+ * 刻意做成单个接口而不是「8 个主题发 8 次请求」——免费版每天只有
+ * 10 万次 Worker 请求，页面每多一次往返就少 10 万次浏览的余量。
+ * 两次 D1 查询就能拼出全部数据，比 9 次 HTTP 往返划算得多。
  */
-images.get('/themes', async (c) => {
-  // 每个主题取最新一张作封面。窗口函数比跑 8 次查询好。
-  const covers = await c.env.DB.prepare(
-    `SELECT theme, id, r2_key, width, height FROM (
-       SELECT theme, id, r2_key, width, height,
+images.get('/feed', async (c) => {
+  // 一次查询取每个主题最新的 N 张：窗口函数按主题分区排序，
+  // 避免「查主题列表 → 循环查每个主题」的 N+1。
+  const { results } = await c.env.DB.prepare(
+    `SELECT ${GALLERY_COLUMNS} FROM (
+       SELECT ${GALLERY_COLUMNS},
               ROW_NUMBER() OVER (PARTITION BY theme ORDER BY id DESC) AS rn
          FROM images
         WHERE status = 'published'
-     ) WHERE rn = 1`
-  ).all<{
-    theme: string;
-    id: string;
-    r2_key: string | null;
-    width: number | null;
-    height: number | null;
-  }>();
+     ) WHERE rn <= ?
+     ORDER BY theme, id DESC`
+  )
+    .bind(FEED_PAGE_SIZE)
+    .all<GalleryRow>();
 
   const counts = await c.env.DB.prepare(
     `SELECT theme, COUNT(*) AS n FROM images WHERE status = 'published' GROUP BY theme`
   ).all<{ theme: string; n: number }>();
-
-  const coverByTheme = new Map(covers.results.map((r) => [r.theme, r]));
   const countByTheme = new Map(counts.results.map((r) => [r.theme, r.n]));
 
-  const themes: ThemeSummary[] = THEMES.map((theme) => {
-    const cover = coverByTheme.get(theme.id);
-    return {
-      id: theme.id,
-      name: theme.name,
-      count: countByTheme.get(theme.id) ?? 0,
-      cover: cover
-        ? {
-            id: cover.id,
-            url: publicUrl(c.env, cover.id, cover.r2_key),
-            width: cover.width,
-            height: cover.height,
-          }
-        : null,
-    };
+  const rowsByTheme = new Map<string, GalleryRow[]>();
+  for (const row of results) {
+    const list = rowsByTheme.get(row.theme);
+    if (list) list.push(row);
+    else rowsByTheme.set(row.theme, [row]);
+  }
+
+  // 按 THEMES 的顺序输出，空主题整组跳过（前端不用再处理"这组没图"）
+  const sections: FeedSection[] = THEMES.flatMap((theme) => {
+    const rows = rowsByTheme.get(theme.id);
+    if (!rows?.length) return [];
+
+    return [
+      {
+        theme: theme.id,
+        name: theme.name,
+        count: countByTheme.get(theme.id) ?? rows.length,
+        items: rows.map((row) => toItem(c.env, row)),
+        nextCursor: rows.length === FEED_PAGE_SIZE ? rows[rows.length - 1].id : null,
+      },
+    ];
   });
 
-  return c.json({ themes });
+  return c.json({ sections });
 });
 
-/** 二级页：某主题下的图片，keyset 分页（ULID 字典序即时间序） */
+/** 某个主题下的一页图片。首页各组的"加载更多"和二级页都用它。 */
 images.get('/themes/:theme', async (c) => {
   const theme = c.req.param('theme');
   if (!isValidTheme(theme)) return c.json({ error: '主题不存在' }, 404);
@@ -125,18 +123,18 @@ images.get('/themes/:theme', async (c) => {
 
 /**
  * 图片字节。仅作为本地开发的回落路径。
- * 生产走 R2 自定义域名，这个端点不会被访问到。
+ * 生产配了 R2 自定义域名后，这个端点不会被访问到。
  */
 images.get('/:id/raw', async (c) => {
   const row = await c.env.DB.prepare(
-    `SELECT r2_key FROM images WHERE id = ? AND status = 'published'`
+    `SELECT storage_path FROM images WHERE id = ? AND status = 'published'`
   )
     .bind(c.req.param('id'))
-    .first<{ r2_key: string | null }>();
+    .first<{ storage_path: string | null }>();
 
-  if (!row?.r2_key) return c.notFound();
+  if (!row?.storage_path) return c.notFound();
 
-  const object = await c.env.BUCKET.get(row.r2_key);
+  const object = await c.env.BUCKET.get(row.storage_path);
   if (!object) return c.notFound();
 
   return new Response(object.body, {
@@ -148,50 +146,27 @@ images.get('/:id/raw', async (c) => {
   });
 });
 
-/**
- * 清掉 CDN 上这条图片的缓存。
- *
- * 必须做：图片缓存是长 TTL（immutable），删了 R2 对象但边缘节点还留着，
- * 用户会以为删掉了、实际仍能访问 —— 对画廊内容是隐私事故。
- * 没配 CF_ZONE_ID / token 时静默跳过，靠 TTL 自然过期。
- */
-async function purgeCdn(env: Env, url: string): Promise<void> {
-  const zoneId = env.CF_ZONE_ID?.trim();
-  const token = env.CF_CACHE_PURGE_TOKEN?.trim();
-  if (!zoneId || !token) return;
-
-  try {
-    await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/purge_cache`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ files: [url] }),
-    });
-  } catch {
-    // 清理失败不该让删除操作失败。TTL 到期后会自然失效。
-  }
-}
-
 /** 删除：管理员专属 */
 images.delete('/:id', requireAdmin, async (c) => {
   const id = c.req.param('id');
 
   const row = await c.env.DB.prepare(
-    `SELECT r2_key, thumb_key FROM images WHERE id = ? AND status != 'deleted'`
+    `SELECT storage_path FROM images WHERE id = ? AND status != 'deleted'`
   )
     .bind(id)
-    .first<{ r2_key: string | null; thumb_key: string | null }>();
+    .first<{ storage_path: string | null }>();
 
   if (!row) return c.json({ error: '图片不存在' }, 404);
 
   // 先删对象、再清缓存：反过来的话，清理后会立刻被重新回源并再次缓存
   // R2 的 DeleteObject 是免费操作
-  if (row.r2_key) await c.env.BUCKET.delete(row.r2_key);
-  if (row.thumb_key) await c.env.BUCKET.delete(row.thumb_key);
-  await purgeCdn(c.env, publicUrl(c.env, id, row.r2_key));
+  if (row.storage_path) await c.env.BUCKET.delete(row.storage_path);
+  await purgeCdn(c.env, publicUrl(c.env, id, row.storage_path));
 
-  // 留墓碑：清空对象引用，保留 id / ip_hash 供追溯
+  // 留墓碑：清空对象引用，保留 id / seq / ip_hash 供追溯。
+  // seq 保留是必要的 —— 序号不能因为删除而被复用。
   await c.env.DB.prepare(
-    `UPDATE images SET status = 'deleted', r2_key = NULL, thumb_key = NULL WHERE id = ?`
+    `UPDATE images SET status = 'deleted', storage_path = NULL WHERE id = ?`
   )
     .bind(id)
     .run();

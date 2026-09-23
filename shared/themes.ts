@@ -26,3 +26,8 @@ export function themeName(id: string): string {
 export function isValidTheme(id: string): boolean {
   return THEME_IDS.includes(id);
 }
+
+/** 主题在存储路径里的编号，1-8。存储路径形如 first/3/3-7.jpg */
+export function themeIndex(id: string): number {
+  return THEMES.findIndex((t) => t.id === id) + 1;
+}

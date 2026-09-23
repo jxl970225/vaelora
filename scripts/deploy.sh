@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.." || exit 1
 
 WORKER_NAME="vaelora"
 DB_NAME="vaelora"
-BUCKET_NAME="vaelora-images"
+BUCKET_NAME="vaelora"
 CONFIG="wrangler.jsonc"
 
 # 这两个是随机值，脚本可以自己生成；ADMIN_PASSWORD_HASH 需要你输密码
@@ -121,12 +121,13 @@ BUCKET_LIST=$(npx wrangler r2 bucket list --json 2>/dev/null || echo '[]')
 BUCKET=$(json_lookup "$BUCKET_LIST" "const x=(Array.isArray(d)?d:(d.result||d.buckets||[])).find(v=>(v.name||v.bucket_name)==='$BUCKET_NAME'); console.log(x?'yes':'')")
 
 if [ -n "$BUCKET" ]; then
-  ok "R2 桶 $BUCKET_NAME 已存在"
+  ok "R2 桶 ${BUCKET_NAME} 已存在"
 else
-  warn "R2 桶 $BUCKET_NAME 不存在"
+  warn "R2 桶 ${BUCKET_NAME} 不存在"
   if [ "$CHECK_ONLY" -eq 1 ]; then
     info "需要创建（--check 模式不执行）"
   else
+    info "创建中…"
     npx wrangler r2 bucket create "$BUCKET_NAME" >/dev/null 2>&1 \
       && ok "已创建" || die "创建 R2 桶失败"
   fi

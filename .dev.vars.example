@@ -14,10 +14,8 @@ SESSION_SECRET=
 # IP 加盐哈希用的盐
 IP_SALT=
 
-# R2 自定义域名，留空则图片走 Worker 代理（本地开发用）
-IMAGE_BASE_URL=
-
 # 可选：配了才能在删除图片时立即清理 CDN 缓存
 # 不配则靠 TTL 过期（此时缓存头会自动降为 5 分钟）
+# 需要 Zone.Cache Purge 权限的 API token
 CF_ZONE_ID=
 CF_CACHE_PURGE_TOKEN=

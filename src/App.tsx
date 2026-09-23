@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BottomBar } from './components/BottomBar';
+import { Feed } from './components/Feed';
 import { LoginModal } from './components/LoginModal';
 import { ThemePicker } from './components/ThemePicker';
 import { ThemeDetail } from './components/ThemeDetail';
-import { ThemeGrid } from './components/ThemeGrid';
 import { Starfield } from './components/Starfield';
-import { deleteImage, fetchThemeImages, fetchThemes } from './lib/api';
+import { deleteImage, fetchThemeImages } from './lib/api';
 import { uploadImage } from './lib/upload';
-import { goHome, goTheme, useRoute } from './lib/route';
+import { goHome, useRoute } from './lib/route';
 import { themeName } from '../shared/themes';
-import type { GalleryItem, ThemeSummary } from '../shared/types';
+import type { GalleryItem } from '../shared/types';
 
 interface Job {
   key: string;
@@ -28,35 +28,24 @@ export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const isAdmin = token !== null;
 
-  const [themes, setThemes] = useState<ThemeSummary[]>([]);
-  const [themesLoading, setThemesLoading] = useState(true);
-
-  const [items, setItems] = useState<GalleryItem[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-
   const [error, setError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
 
   const [showLogin, setShowLogin] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
 
+  // 首页信息流的数据由 Feed 自己管，这里只用一个计数器通知它重新拉取
+  const [feedReload, setFeedReload] = useState(0);
+
+  // 二级页仍保留（可通过 #/theme/xxx 直接访问），数据在这里管
+  const [items, setItems] = useState<GalleryItem[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 用 ref 而不是 state：file input 的 onChange 触发时读到的必须是最新值
   const pendingThemeRef = useRef<string | null>(null);
-
-  const loadThemes = useCallback(async () => {
-    setThemesLoading(true);
-    setError(null);
-    try {
-      setThemes(await fetchThemes());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '加载主题失败');
-    } finally {
-      setThemesLoading(false);
-    }
-  }, []);
 
   const loadTheme = useCallback(async (theme: string) => {
     setDetailLoading(true);
@@ -73,9 +62,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (route.name === 'home') void loadThemes();
-    else void loadTheme(route.theme);
-  }, [route, loadThemes, loadTheme]);
+    if (route.name === 'theme') void loadTheme(route.theme);
+  }, [route, loadTheme]);
 
   const loadMore = useCallback(async () => {
     if (route.name !== 'theme' || !cursor || loadingMore) return;
@@ -152,8 +140,8 @@ export default function App() {
     window.setTimeout(() => setJobs((prev) => prev.filter((job) => job.status !== 'done')), 1200);
 
     // 上传完重新拉取当前视图的数据
-    if (route.name === 'home') await loadThemes();
-    else await loadTheme(route.theme);
+    if (route.name === 'theme') await loadTheme(route.theme);
+    else setFeedReload((n) => n + 1);
   }
 
   // ── 删除 ──────────────────────────────────────────
@@ -163,6 +151,7 @@ export default function App() {
     try {
       await deleteImage(item.id, token);
       setItems((prev) => prev.filter((p) => p.id !== item.id));
+      setFeedReload((n) => n + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : '删除失败');
     }
@@ -179,86 +168,93 @@ export default function App() {
           </h1>
         </header>
 
-      {error && (
-        <div className="banner banner--error" role="alert">
-          <span>{error}</span>
-          <button type="button" onClick={() => setError(null)} aria-label="关闭">
-            ✕
-          </button>
-        </div>
-      )}
+        {error && (
+          <div className="banner banner--error" role="alert">
+            <span>{error}</span>
+            <button type="button" onClick={() => setError(null)} aria-label="关闭">
+              ✕
+            </button>
+          </div>
+        )}
 
-      <main>
-        {route.name === 'home' ? (
-          <ThemeGrid themes={themes} loading={themesLoading} onOpen={goTheme} />
-        ) : (
-          <ThemeDetail
-            themeName={themeName(route.theme)}
-            items={items}
-            isAdmin={isAdmin}
-            loading={detailLoading}
-            loadingMore={loadingMore}
-            hasMore={cursor !== null}
-            onBack={goHome}
-            onLoadMore={() => void loadMore()}
-            onDelete={(item) => void handleDelete(item)}
+        <main>
+          {route.name === 'home' ? (
+            <Feed
+              isAdmin={isAdmin}
+              reloadSignal={feedReload}
+              onDelete={(item) => void handleDelete(item)}
+              onError={setError}
+            />
+          ) : (
+            <ThemeDetail
+              themeName={themeName(route.theme)}
+              items={items}
+              isAdmin={isAdmin}
+              loading={detailLoading}
+              loadingMore={loadingMore}
+              hasMore={cursor !== null}
+              onBack={goHome}
+              onLoadMore={() => void loadMore()}
+              onDelete={(item) => void handleDelete(item)}
+            />
+          )}
+        </main>
+
+        {jobs.length > 0 && (
+          <ul className="jobs">
+            {jobs.map((job) => (
+              <li key={job.key} className={`job job--${job.status}`}>
+                <div
+                  className="job__thumb"
+                  style={
+                    job.previewUrl ? { backgroundImage: `url(${job.previewUrl})` } : undefined
+                  }
+                />
+                <div className="job__body">
+                  <span className="job__name">{job.name}</span>
+                  {job.status === 'error' ? (
+                    <span className="job__error">{job.error}</span>
+                  ) : (
+                    <div className="job__bar">
+                      <div
+                        className="job__fill"
+                        style={{ width: `${Math.round(job.progress * 100)}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          multiple
+          hidden
+          onChange={(e) => void handleFiles(e.target.files)}
+        />
+
+        <BottomBar
+          isAdmin={isAdmin}
+          onRequestLogin={() => setShowLogin(true)}
+          onUploadClick={handleUploadClick}
+          onLogout={() => setToken(null)}
+        />
+
+        {showLogin && (
+          <LoginModal
+            onSuccess={(t) => {
+              setToken(t);
+              setShowLogin(false);
+            }}
+            onClose={() => setShowLogin(false)}
           />
         )}
-      </main>
 
-      {jobs.length > 0 && (
-        <ul className="jobs">
-          {jobs.map((job) => (
-            <li key={job.key} className={`job job--${job.status}`}>
-              <div
-                className="job__thumb"
-                style={job.previewUrl ? { backgroundImage: `url(${job.previewUrl})` } : undefined}
-              />
-              <div className="job__body">
-                <span className="job__name">{job.name}</span>
-                {job.status === 'error' ? (
-                  <span className="job__error">{job.error}</span>
-                ) : (
-                  <div className="job__bar">
-                    <div
-                      className="job__fill"
-                      style={{ width: `${Math.round(job.progress * 100)}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif"
-        multiple
-        hidden
-        onChange={(e) => void handleFiles(e.target.files)}
-      />
-
-      <BottomBar
-        isAdmin={isAdmin}
-        onRequestLogin={() => setShowLogin(true)}
-        onUploadClick={handleUploadClick}
-        onLogout={() => setToken(null)}
-      />
-
-      {showLogin && (
-        <LoginModal
-          onSuccess={(t) => {
-            setToken(t);
-            setShowLogin(false);
-          }}
-          onClose={() => setShowLogin(false)}
-        />
-      )}
-
-      {showPicker && <ThemePicker onPick={handlePickTheme} onClose={() => setShowPicker(false)} />}
+        {showPicker && <ThemePicker onPick={handlePickTheme} onClose={() => setShowPicker(false)} />}
       </div>
     </>
   );

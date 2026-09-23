@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { ulid } from '../lib/ulid';
 import { hashIp } from '../lib/crypto';
+import { cacheControlFor } from '../lib/storage';
 import { requireAdmin } from '../middleware';
-import { isValidTheme } from '../../shared/themes';
+import { isValidTheme, themeIndex } from '../../shared/themes';
 
 export const uploads = new Hono<{ Bindings: Env }>();
 
@@ -10,32 +11,27 @@ export const uploads = new Hono<{ Bindings: Env }>();
 uploads.use('*', requireAdmin);
 
 /**
- * R2 key 带上扩展名不是为了好看：Cloudflare 只对特定扩展名默认启用缓存，
- * 无扩展名的 key 走 R2 自定义域名时不会命中 CDN，等于白配。
- * 图片内容不可变（key 里含 ULID，永不复用），所以可以长期缓存，删除靠主动清理。
- */
-const EXTENSION_BY_TYPE: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/gif': 'gif',
-};
-
-function extensionFor(contentType: string): string {
-  return EXTENSION_BY_TYPE[contentType] ?? 'bin';
-}
-
-/**
- * 缓存时长取决于「删除的即时性怎么保证」：
+ * 存储路径：{主题号}/{主题号}-{序号}.jpg
  *
- * - 配了 ZONE_ID + purge token → 主动清理，可以用长缓存 + immutable
- * - 没配 → 只能靠 TTL 自然过期，必须用短 TTL。
- *   这里若图省事用一年，删除后的图片会在 CDN 上继续可见一年 ——
- *   管理员删掉违规内容却还在展示，是实打实的事故。
+ * 序号在每个主题内单调递增、**永不复用** —— 删掉 1-3 之后新图会拿到 1-4。
+ * 这样「同一路径永远对应同一张图」成立，浏览器和 CDN 缓存才不会骗人。
+ * 如果复用序号，删图后重新上传会顶掉旧名字，用户看到的还是缓存里的老图。
  */
-function cacheControlFor(env: Env): string {
-  const canPurge = Boolean(env.CF_ZONE_ID?.trim() && env.CF_CACHE_PURGE_TOKEN?.trim());
-  return canPurge ? 'public, max-age=31536000, immutable' : 'public, max-age=300';
+async function allocateSeq(env: Env, theme: string): Promise<number> {
+  await env.DB.prepare(`INSERT OR IGNORE INTO theme_counters (theme, next_seq) VALUES (?, 1)`)
+    .bind(theme)
+    .run();
+
+  // 单条语句完成「自增 + 取值」，SQLite 的写串行化保证并发上传不会撞号。
+  // RETURNING 看到的是自增后的值，所以减 1 才是本次分配的号。
+  const row = await env.DB.prepare(
+    `UPDATE theme_counters SET next_seq = next_seq + 1 WHERE theme = ? RETURNING next_seq - 1 AS seq`
+  )
+    .bind(theme)
+    .first<{ seq: number }>();
+
+  if (!row) throw new Error('取号失败');
+  return row.seq;
 }
 
 /** ① 创建上传会话 */
@@ -49,28 +45,26 @@ uploads.post('/', async (c) => {
   const bytes = Number(body.bytes);
   const theme = body.theme ?? '';
 
-  if (!isValidTheme(theme)) {
-    return c.json({ error: '主题无效' }, 400);
-  }
-  if (!contentType.startsWith('image/')) {
-    return c.json({ error: '只支持图片格式' }, 415);
-  }
+  if (!isValidTheme(theme)) return c.json({ error: '主题无效' }, 400);
+  if (!contentType.startsWith('image/')) return c.json({ error: '只支持图片格式' }, 415);
   if (!Number.isFinite(bytes) || bytes <= 0 || bytes > maxBytes) {
     return c.json({ error: `图片需小于 ${Math.floor(maxBytes / 1024 / 1024)}MB` }, 413);
   }
 
   const id = ulid();
-  // 两级路径：主题/图片 id.扩展名，和展示层级一致
-  const r2Key = `${theme}/${id}.${extensionFor(contentType)}`;
+  const seq = await allocateSeq(c.env, theme);
+  const index = themeIndex(theme);
+  const storagePath = `${index}/${index}-${seq}.jpg`;
 
   await c.env.DB.prepare(
     `INSERT INTO images
-       (id, r2_key, theme, content_type, bytes, status, ip_hash, created_at)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`
+       (id, storage_path, seq, theme, content_type, bytes, status, ip_hash, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
   )
     .bind(
       id,
-      r2Key,
+      storagePath,
+      seq,
       theme,
       contentType,
       bytes,
@@ -79,54 +73,51 @@ uploads.post('/', async (c) => {
     )
     .run();
 
-  return c.json({ id, key: r2Key, theme, uploadUrl: `/api/uploads/${id}/data` }, 201);
+  return c.json({ id, key: storagePath, theme, uploadUrl: `/api/uploads/${id}/data` }, 201);
 });
 
 /**
- * ② 接收字节写入 R2。
- * `c.req.raw.body` 是 ReadableStream，R2 直接流式落盘，不读进内存。
+ * ② 接收字节并写入 R2。
+ *
+ * `c.req.raw.body` 是 ReadableStream，R2 直接流式落盘 —— 不读进内存，
+ * 所以不受 Worker 128MB 内存限制约束。而且 put() 会返回对象的真实大小，
+ * 流式写入也能校验客户端自报的体积是否属实。
  */
 uploads.put('/:id/data', async (c) => {
   const id = c.req.param('id');
   const maxBytes = Number(c.env.MAX_UPLOAD_BYTES);
 
   const row = await c.env.DB.prepare(
-    `SELECT r2_key, status, bytes FROM images WHERE id = ?`
+    `SELECT storage_path, status, bytes FROM images WHERE id = ?`
   )
     .bind(id)
-    .first<{ r2_key: string | null; status: string; bytes: number }>();
+    .first<{ storage_path: string | null; status: string; bytes: number }>();
 
   if (!row) return c.json({ error: '上传会话不存在' }, 404);
   if (row.status === 'deleted') return c.json({ error: '该图片已被删除' }, 410);
   if (row.status === 'rejected') return c.json({ error: '该上传已被拒绝' }, 410);
-
   // 幂等：上一次可能已经成功落盘，只是响应没送达客户端就触发了重试
   if (row.status === 'published' || row.status === 'uploaded') {
     return c.json({ bytes: row.bytes, alreadyUploaded: true });
   }
-  if (!row.r2_key) return c.json({ error: '上传会话已失效' }, 410);
+  if (!row.storage_path) return c.json({ error: '上传会话已失效' }, 410);
 
   const declared = Number(c.req.header('content-length') ?? '0');
-  if (declared > maxBytes) {
-    return c.json({ error: '图片超出大小限制' }, 413);
-  }
+  if (declared > maxBytes) return c.json({ error: '图片超出大小限制' }, 413);
 
   const contentType = c.req.header('content-type') ?? 'application/octet-stream';
-  if (!contentType.startsWith('image/')) {
-    return c.json({ error: '只支持图片格式' }, 415);
-  }
+  if (!contentType.startsWith('image/')) return c.json({ error: '只支持图片格式' }, 415);
 
-  const object = await c.env.BUCKET.put(row.r2_key, c.req.raw.body, {
+  const object = await c.env.BUCKET.put(row.storage_path, c.req.raw.body, {
     httpMetadata: {
       contentType,
-      // 内容不可变（key 含 ULID 且不复用），所以能长缓存就长缓存
       cacheControl: cacheControlFor(c.env),
     },
   });
 
-  // 自报体积可以撒谎，以 R2 实际落盘大小为准兜底
+  // 客户端自报体积可以撒谎，以 R2 实际落盘大小为准兜底
   if (object.size > maxBytes) {
-    await c.env.BUCKET.delete(row.r2_key);
+    await c.env.BUCKET.delete(row.storage_path);
     await c.env.DB.prepare(`UPDATE images SET status = 'rejected' WHERE id = ?`).bind(id).run();
     return c.json({ error: '图片超出大小限制' }, 413);
   }
@@ -169,9 +160,7 @@ uploads.post('/:id/commit', async (c) => {
     .bind(Number.isFinite(width) ? width : null, Number.isFinite(height) ? height : null, id)
     .run();
 
-  if (!result.meta.changes) {
-    return c.json({ error: '上传尚未完成' }, 409);
-  }
+  if (!result.meta.changes) return c.json({ error: '上传尚未完成' }, 409);
 
   return c.json({ id, status: 'published' });
 });
