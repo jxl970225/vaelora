@@ -1,33 +1,41 @@
-import { THEMES } from '../../shared/themes';
+import { useState } from 'react';
 
-interface ThemePickerProps {
-  onPick: (themeIndex: number) => void;
+interface DescriptionModalProps {
+  onConfirm: (description: string) => void;
   onClose: () => void;
 }
 
 /**
- * 在首页上传的是「一级图片」——某个主题的封面，所以要先选是哪个主题。
- * 在二级页上传则自动归入当前主题，不弹这个框。
+ * 上传封面时填描述。位置在点上传按钮时已经确定，这里只收集描述文字。
  */
-export function ThemePicker({ onPick, onClose }: ThemePickerProps) {
-  return (
-    <div className="modal" role="dialog" aria-modal="true" aria-label="选择主题">
-      <div className="modal__panel">
-        <h2 className="modal__title">上传哪个主题的封面？</h2>
+export function DescriptionModal({ onConfirm, onClose }: DescriptionModalProps) {
+  const [description, setDescription] = useState('');
 
-        <ul className="picker">
-          {THEMES.map((theme, i) => (
-            <li key={theme.id}>
-              <button type="button" className="picker__item" onClick={() => onPick(i + 1)}>
-                {theme.name}
-              </button>
-            </li>
-          ))}
-        </ul>
+  function confirm() {
+    onConfirm(description.trim());
+  }
+
+  return (
+    <div className="modal" role="dialog" aria-modal="true" aria-label="Add a description">
+      <div className="modal__panel">
+        <h2 className="modal__title">Add a description</h2>
+
+        <label className="field">
+          <span>Description</span>
+          <textarea
+            className="field__textarea"
+            placeholder="A short note shown at the bottom of this collection's page"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </label>
 
         <div className="modal__actions">
           <button type="button" className="btn btn--ghost" onClick={onClose}>
-            取消
+            Cancel
+          </button>
+          <button type="button" className="btn btn--primary" onClick={confirm}>
+            Choose image
           </button>
         </div>
       </div>

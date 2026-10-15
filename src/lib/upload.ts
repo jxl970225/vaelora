@@ -6,6 +6,8 @@ export interface UploadOptions {
   level: UploadLevel;
   themeIndex: number;
   token: string;
+  /** 指定固定序号（二级图片补位用）。不传则追加到末尾。 */
+  seq?: number;
   onProgress?: (pct: number) => void;
   /** 压缩完成即回调，用于立刻显示本地预览 */
   onPreview?: (previewUrl: string) => void;
@@ -42,6 +44,7 @@ export async function uploadImage(file: File, options: UploadOptions): Promise<U
     width: String(width),
     height: String(height),
   });
+  if (options.seq !== undefined) query.set('seq', String(options.seq));
 
   const result = await new Promise<Omit<UploadResult, 'previewUrl'>>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -59,11 +62,11 @@ export async function uploadImage(file: File, options: UploadOptions): Promise<U
         try {
           resolve(JSON.parse(xhr.responseText));
         } catch {
-          reject(new Error('服务端返回了无法解析的内容'));
+          reject(new Error('Server returned an unreadable response'));
         }
         return;
       }
-      let message = `上传失败 (${xhr.status})`;
+      let message = `Upload failed (${xhr.status})`;
       try {
         const body = JSON.parse(xhr.responseText) as { error?: string };
         if (body.error) message = body.error;
@@ -72,8 +75,8 @@ export async function uploadImage(file: File, options: UploadOptions): Promise<U
       }
       reject(new Error(message));
     };
-    xhr.onerror = () => reject(new Error('网络错误'));
-    xhr.onabort = () => reject(new Error('上传已取消'));
+    xhr.onerror = () => reject(new Error('Network error'));
+    xhr.onabort = () => reject(new Error('Upload canceled'));
     xhr.send(blob);
   });
 

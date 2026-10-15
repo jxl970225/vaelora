@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { requireAdmin } from '../middleware';
-import { THEMES } from '../../shared/themes';
-import { imageKey, nextSeq, publicUrl } from '../lib/storage';
+import { isValidThemeIndex } from '../../shared/themes';
+import { imageKey, metaKey, nextSeq, publicUrl } from '../lib/storage';
 
 export const uploads = new Hono<{ Bindings: Env }>();
 
@@ -21,7 +21,7 @@ function extensionFor(contentType: string): string {
 
 function parseTheme(raw: string | undefined): number | null {
   const index = Number(raw);
-  if (!Number.isInteger(index) || index < 1 || index > THEMES.length) return null;
+  if (!isValidThemeIndex(index)) return null;
   return index;
 }
 
@@ -39,20 +39,20 @@ uploads.post('/', async (c) => {
 
   const level = c.req.query('level');
   if (level !== 'cover' && level !== 'image') {
-    return c.json({ error: 'level 必须是 cover 或 image' }, 400);
+    return c.json({ error: 'level must be cover or image' }, 400);
   }
 
   const index = parseTheme(c.req.query('theme'));
-  if (index === null) return c.json({ error: '主题无效' }, 400);
+  if (index === null) return c.json({ error: 'Invalid theme' }, 400);
 
   const contentType = c.req.header('content-type') ?? '';
   if (!contentType.startsWith('image/')) {
-    return c.json({ error: '只支持图片格式' }, 415);
+    return c.json({ error: 'Only image formats are supported' }, 415);
   }
 
   const declared = Number(c.req.header('content-length') ?? '0');
   if (declared > maxBytes) {
-    return c.json({ error: `图片需小于 ${Math.floor(maxBytes / 1024 / 1024)}MB` }, 413);
+    return c.json({ error: `Image must be smaller than ${Math.floor(maxBytes / 1024 / 1024)}MB` }, 413);
   }
 
   const width = Number(c.req.query('width'));
@@ -66,14 +66,30 @@ uploads.post('/', async (c) => {
   let key: string;
   if (level === 'cover') {
     key = `${index}.${ext}`;
-    // 封面名固定，换封面时旧扩展名的文件会变成孤儿，先清掉
+    // 封面名固定，换封面时旧扩展名的图片会变成孤儿，先清掉。
+    // 注意只删图片文件 —— 描述文件 {index}.json 也在同一个前缀下，绝不能误删。
     const existing = await c.env.BUCKET.list({ prefix: `${index}.` });
-    const stale = existing.objects.filter((o) => o.key !== key);
+    const stale = existing.objects.filter(
+      (o) => o.key !== key && /\.(jpg|jpeg|png|webp|gif)$/i.test(o.key)
+    );
     if (stale.length > 0) {
       await c.env.BUCKET.delete(stale.map((o) => o.key));
     }
   } else {
-    const seq = await nextSeq(c.env.BUCKET, index);
+    // 二级图片。可选 `seq` 参数指定固定序号 —— 用于补位：
+    // 管理员在缺失的序号位置上传，把图填到那个固定位置而不是追加到末尾。
+    const seqParam = Number(c.req.query('seq'));
+    let seq: number;
+    if (Number.isInteger(seqParam) && seqParam >= 1 && seqParam <= 9999) {
+      // 该序号是否已被占用（不论扩展名）
+      const occupied = await c.env.BUCKET.list({ prefix: `${index}/${index}-${seqParam}.` });
+      if (occupied.objects.length > 0) {
+        return c.json({ error: 'That position is already taken' }, 409);
+      }
+      seq = seqParam;
+    } else {
+      seq = await nextSeq(c.env.BUCKET, index);
+    }
     key = imageKey(index, seq, ext);
   }
 
@@ -85,12 +101,12 @@ uploads.post('/', async (c) => {
 
   if (object.size > maxBytes) {
     await c.env.BUCKET.delete(key);
-    return c.json({ error: '图片超出大小限制' }, 413);
+    return c.json({ error: 'Image exceeds the size limit' }, 413);
   }
 
   if (object.size === 0) {
     await c.env.BUCKET.delete(key);
-    return c.json({ error: '图片内容为空' }, 400);
+    return c.json({ error: 'Image is empty' }, 400);
   }
 
   return c.json({
@@ -102,23 +118,46 @@ uploads.post('/', async (c) => {
   });
 });
 
+/**
+ * 上传/更新某主题的描述文字，写成 {主题号}.json。
+ * 描述是主题级属性，和封面图片解耦 —— 换封面不会丢描述。
+ */
+uploads.post('/description', async (c) => {
+  const index = parseTheme(c.req.query('theme'));
+  if (index === null) return c.json({ error: 'Invalid theme' }, 400);
+
+  const body = await c.req
+    .json<{ description?: string }>()
+    .catch(() => ({}) as { description?: string });
+
+  const description = (body.description ?? '').trim();
+  if (!description) return c.json({ error: 'Description is empty' }, 400);
+  if (description.length > 2000) return c.json({ error: 'Description is too long' }, 413);
+
+  await c.env.BUCKET.put(metaKey(index), JSON.stringify({ description }), {
+    httpMetadata: { contentType: 'application/json', cacheControl: 'public, max-age=300' },
+  });
+
+  return c.json({ index, description });
+});
+
 /** 删除一张图片。key 直接来自前端，必须校验它落在某个主题目录内。 */
 uploads.delete('/', async (c) => {
   const key = c.req.query('key');
-  if (!key) return c.json({ error: '缺少 key' }, 400);
+  if (!key) return c.json({ error: 'Missing key' }, 400);
 
   // 只允许删二级图片（{主题号}/...），删封面走换封面覆盖，
   // 而且这样能挡住 key 被构造成 `../../` 之类的路径穿越
   const match = /^(\d+)\/\1-\d+\.[^.]+$/.exec(key);
-  if (!match) return c.json({ error: '只能删除主题目录下的图片' }, 400);
+  if (!match) return c.json({ error: 'Can only delete images within a theme folder' }, 400);
 
   const index = Number(match[1]);
-  if (index < 1 || index > THEMES.length) {
-    return c.json({ error: '主题无效' }, 400);
+  if (!isValidThemeIndex(index)) {
+    return c.json({ error: 'Invalid theme' }, 400);
   }
 
   const existing = await c.env.BUCKET.head(key);
-  if (!existing) return c.json({ error: '图片不存在' }, 404);
+  if (!existing) return c.json({ error: 'Image not found' }, 404);
 
   await c.env.BUCKET.delete(key);
   return c.body(null, 204);

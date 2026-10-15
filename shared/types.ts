@@ -1,9 +1,8 @@
-/** 一级：首页展示的主题封面。文件名固定为 {主题号}.jpg，没有对应文件就不返回。 */
+/** 一级：首页的一个固定位置。coverUrl 为 null 表示该位置暂无封面。 */
 export interface ThemeSummary {
   index: number;
-  name: string;
-  coverUrl: string;
-  /** 该主题目录下有没有二级图片 */
+  coverUrl: string | null;
+  /** 该位置目录下有没有二级图片 */
   hasImages: boolean;
 }
 
@@ -19,7 +18,8 @@ export interface ThemeImage {
 
 export interface ThemeImages {
   index: number;
-  name: string;
+  /** 该位置的描述文字，上传封面时填写，展示在二级页底部 */
+  description: string | null;
   items: ThemeImage[];
 }
 

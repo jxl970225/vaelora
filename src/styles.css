@@ -64,14 +64,33 @@ body::before {
   margin: 0 auto;
 }
 
+.header {
+  text-align: center;
+}
+
 .header h1 {
-  margin: 0 0 16px;
+  margin: 0 auto 6px;
   font-size: 22px;
   letter-spacing: 0.05em;
   /* 星空底上的光晕，和标题一起压住深色背景 */
   text-shadow: 0 0 24px rgba(150, 170, 255, 0.45);
   cursor: pointer;
   width: fit-content;
+}
+
+.header__subtitle {
+  margin: 0 0 8px;
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.header__desc {
+  margin: 0 auto 20px;
+  max-width: 460px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--muted);
 }
 
 /* ── 提示条 ─────────────────────────────── */
@@ -109,7 +128,7 @@ body::before {
   color: var(--muted);
 }
 
-/* ── 首页：一级图片（主题封面），纵向一列 ── */
+/* ── 首页：一级图片（封面），纵向一列，纯图无名字无编号 ── */
 .covers {
   display: flex;
   flex-direction: column;
@@ -119,9 +138,7 @@ body::before {
   list-style: none;
 }
 
-/* 不放卡片底框，图片本身就是全部 —— 主题名叠在图片下缘 */
 .cover {
-  position: relative;
   display: block;
   width: 100%;
   padding: 0;
@@ -144,20 +161,29 @@ body::before {
   background: rgba(18, 18, 32, 0.82);
 }
 
-.cover__name {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 24px 14px 12px;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: #fff;
-  text-align: left;
-  /* 压一层渐变，避免浅色图片上的文字看不清 */
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.72), transparent);
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+/* 首页空位：管理员上传模式下，缺封面的位置显示这个按钮 */
+.cover-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: rgba(18, 18, 32, 0.4);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.cover-slot:active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.cover-slot__plus {
+  font-size: 32px;
+  font-weight: 300;
+  line-height: 1;
 }
 
 /* ── 二级页 ─────────────────────────────── */
@@ -181,15 +207,21 @@ body::before {
   cursor: pointer;
 }
 
-.detailbar__title {
-  flex: 1;
-  margin: 0;
-  font-size: 18px;
-}
-
 .detailbar__count {
+  margin-left: auto;
   font-size: 12px;
   color: var(--muted);
+}
+
+/* 主题描述，展示在二级页最下方 */
+.detail__desc {
+  margin: 24px 0 8px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--muted);
+  white-space: pre-wrap;
 }
 
 .grid {
@@ -247,6 +279,37 @@ body::before {
 
 .card__delete:active {
   background: var(--danger);
+}
+
+/* 管理员补位上传槽位：缺失序号的位置显示这个按钮 */
+.card__slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: rgba(18, 18, 32, 0.4);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.card__slot:active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.card__slot-plus {
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 300;
+}
+
+.card__slot-seq {
+  font-size: 12px;
 }
 
 .more {
@@ -476,6 +539,31 @@ body::before {
   border-color: var(--accent);
 }
 
+.field__textarea {
+  width: 100%;
+  min-height: 84px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #101016;
+  color: var(--text);
+  font-size: 16px; /* 小于 16px 时 iOS 会自动放大页面 */
+  line-height: 1.5;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.field__textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.modal__label {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .btn {
   min-height: 44px;
   padding: 0 18px;
@@ -524,4 +612,9 @@ body::before {
 
 .picker__item:active {
   border-color: var(--accent);
+}
+
+.picker__item--selected {
+  border-color: var(--accent);
+  background: rgba(109, 94, 252, 0.15);
 }

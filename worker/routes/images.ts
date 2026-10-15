@@ -1,26 +1,21 @@
 import { Hono } from 'hono';
-import { THEMES } from '../../shared/themes';
-import { listAll, publicUrl, seqFromKey, themePrefix } from '../lib/storage';
+import { THEME_COUNT, isValidThemeIndex } from '../../shared/themes';
+import { listAll, metaKey, publicUrl, seqFromKey, themePrefix } from '../lib/storage';
 import type { ThemeSummary, ThemeImage } from '../../shared/types';
 
 export const images = new Hono<{ Bindings: Env }>();
 
-/** `1.jpg` → 1。不是封面命名就返回 0。 */
+/** `1.jpg` → 1。只认图片扩展名，描述文件 `1.json` 之类不算封面。 */
 function indexFromCoverKey(key: string): number {
-  const match = /^(\d+)\.[^.]+$/.exec(key);
+  const match = /^(\d+)\.(jpg|jpeg|png|webp|gif)$/i.exec(key);
   return match ? Number(match[1]) : 0;
 }
 
-function themeName(index: number): string {
-  return THEMES[index - 1]?.name ?? `主题 ${index}`;
-}
-
 /**
- * 首页：一级图片（主题封面）。
+ * 首页：8 个固定位置的一级图片（封面）。
  *
- * 封面文件名固定为 `{主题号}.jpg`，所以「有没有封面」直接看对象存不存在，
- * 不需要数据库记录。带 `?v=` 是为了在封面被替换后能穿透缓存 ——
- * 文件名固定意味着缓存不会自己失效。
+ * 始终返回全部 8 个位置 —— 有封面的带 coverUrl，没有的 coverUrl 为 null。
+ * 前端据此区分：浏览时跳过空位，管理员上传模式时在空位显示上传按钮。
  */
 images.get('/themes', async (c) => {
   // delimiter 让根目录只返回「文件」和「子目录名」，不会展开子目录内容，
@@ -30,7 +25,7 @@ images.get('/themes', async (c) => {
   const coverByIndex = new Map<number, R2Object>();
   for (const object of listed.objects) {
     const index = indexFromCoverKey(object.key);
-    if (index >= 1 && index <= THEMES.length) coverByIndex.set(index, object);
+    if (index >= 1 && index <= THEME_COUNT) coverByIndex.set(index, object);
   }
 
   const folderIndexes = new Set(
@@ -38,15 +33,12 @@ images.get('/themes', async (c) => {
   );
 
   const themes: ThemeSummary[] = [];
-  for (let index = 1; index <= THEMES.length; index++) {
+  for (let index = 1; index <= THEME_COUNT; index++) {
     const cover = coverByIndex.get(index);
-    // 没有封面就不返回 —— 前端不用处理"这个主题没图"的情况
-    if (!cover) continue;
-
     themes.push({
       index,
-      name: themeName(index),
-      coverUrl: `${publicUrl(c.env, cover.key)}?v=${cover.uploaded.getTime()}`,
+      // 带 ?v= 是为了封面被替换后能穿透缓存 —— 文件名固定意味着缓存不会自己失效
+      coverUrl: cover ? `${publicUrl(c.env, cover.key)}?v=${cover.uploaded.getTime()}` : null,
       hasImages: folderIndexes.has(index),
     });
   }
@@ -54,12 +46,10 @@ images.get('/themes', async (c) => {
   return c.json({ themes });
 });
 
-/** 二级页：某个主题目录下的全部图片，按序号排列。 */
+/** 二级页：某个位置目录下的全部图片，按序号排列。 */
 images.get('/themes/:index', async (c) => {
   const index = Number(c.req.param('index'));
-  if (!Number.isInteger(index) || index < 1 || index > THEMES.length) {
-    return c.json({ error: '主题不存在' }, 404);
-  }
+  if (!isValidThemeIndex(index)) return c.json({ error: 'Theme not found' }, 404);
 
   const objects = await listAll(c.env.BUCKET, themePrefix(index));
 
@@ -77,5 +67,20 @@ images.get('/themes/:index', async (c) => {
       height: Number(object.customMetadata?.height) || null,
     }));
 
-  return c.json({ index, name: themeName(index), items });
+  // 位置描述存在 {n}.json，是可选字段。读不到或缺文件时返回 null。
+  const meta = await c.env.BUCKET.get(metaKey(index));
+  let description: string | null = null;
+  if (meta) {
+    try {
+      const parsed = JSON.parse(await meta.text()) as { description?: unknown };
+      description =
+        typeof parsed.description === 'string' && parsed.description.trim()
+          ? parsed.description.trim()
+          : null;
+    } catch {
+      description = null;
+    }
+  }
+
+  return c.json({ index, description, items });
 });

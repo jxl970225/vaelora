@@ -1,33 +1,12 @@
 /**
- * 八个固定主题。改这里即可，前端栏位顺序、上传选择、服务端校验都读同一份。
+ * 首页是 8 个固定「位置」（槽位），不是 8 个预设分类。
  *
- * id 用 ASCII 而不直接用中文名：中文作为数据库值和 URL 参数要处理编码，
- * 而且以后想把「风景」改成「自然风光」时，用 id 就不需要动已有数据。
+ * 位置只有内部编号 1-8（用于存储路径 {n}.jpg、{n}/、{n}.json），
+ * 页面上不展示编号，也不展示任何预设名字 —— 内容由图片和描述体现。
  */
-export const THEMES = [
-  { id: 'landscape', name: '风景' },
-  { id: 'portrait', name: '人像' },
-  { id: 'food', name: '美食' },
-  { id: 'architecture', name: '建筑' },
-  { id: 'animal', name: '动物' },
-  { id: 'street', name: '街拍' },
-  { id: 'night', name: '夜景' },
-  { id: 'still', name: '静物' },
-] as const;
+export const THEME_COUNT = 8;
 
-export type ThemeId = (typeof THEMES)[number]['id'];
-
-export const THEME_IDS: readonly string[] = THEMES.map((t) => t.id);
-
-export function themeName(id: string): string {
-  return THEMES.find((t) => t.id === id)?.name ?? id;
-}
-
-export function isValidTheme(id: string): boolean {
-  return THEME_IDS.includes(id);
-}
-
-/** 主题在存储路径里的编号，1-8。存储路径形如 first/3/3-7.jpg */
-export function themeIndex(id: string): number {
-  return THEMES.findIndex((t) => t.id === id) + 1;
+/** 位置编号是否合法（1-8） */
+export function isValidThemeIndex(index: number): boolean {
+  return Number.isInteger(index) && index >= 1 && index <= THEME_COUNT;
 }

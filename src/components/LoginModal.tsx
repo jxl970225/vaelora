@@ -20,19 +20,19 @@ export function LoginModal({ onSuccess, onClose }: LoginModalProps) {
     try {
       onSuccess(await login(username, password));
     } catch (e) {
-      setError(e instanceof Error ? e.message : '登录失败');
+      setError(e instanceof Error ? e.message : 'Login failed');
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="modal" role="dialog" aria-modal="true" aria-label="管理员登录">
+    <div className="modal" role="dialog" aria-modal="true" aria-label="Admin login">
       <form className="modal__panel" onSubmit={submit}>
-        <h2 className="modal__title">管理员登录</h2>
+        <h2 className="modal__title">Admin Login</h2>
 
         <label className="field">
-          <span>账号</span>
+          <span>Username</span>
           <input
             type="text"
             autoComplete="username"
@@ -43,7 +43,7 @@ export function LoginModal({ onSuccess, onClose }: LoginModalProps) {
         </label>
 
         <label className="field">
-          <span>密码</span>
+          <span>Password</span>
           <input
             type="password"
             autoComplete="current-password"
@@ -56,15 +56,15 @@ export function LoginModal({ onSuccess, onClose }: LoginModalProps) {
         {error && <p className="modal__error">{error}</p>}
 
         <p className="modal__note">
-          凭证只保存在当前页面的内存里，刷新后需要重新登录。
+          Credentials are kept in memory only; you'll need to log in again after a refresh.
         </p>
 
         <div className="modal__actions">
           <button type="button" className="btn btn--ghost" onClick={onClose} disabled={busy}>
-            取消
+            Cancel
           </button>
           <button type="submit" className="btn btn--primary" disabled={busy}>
-            {busy ? '登录中…' : '登录'}
+            {busy ? 'Signing in…' : 'Sign in'}
           </button>
         </div>
       </form>

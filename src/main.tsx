@@ -4,7 +4,7 @@ import App from './App';
 import './styles.css';
 
 const container = document.getElementById('root');
-if (!container) throw new Error('缺少 #root 挂载点');
+if (!container) throw new Error('Missing #root mount point');
 
 createRoot(container).render(
   <StrictMode>

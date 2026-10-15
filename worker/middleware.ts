@@ -7,7 +7,7 @@ export const requireAdmin = createMiddleware<{ Bindings: Env }>(async (c, next) 
   // 和环境变量写入侧保持一致地 trim —— 复制粘贴很容易带上尾部换行，
   // 不处理的话签发的 token 验不过
   if (!token || !(await verifyToken(c.env.SESSION_SECRET.trim(), token))) {
-    return c.json({ error: '需要管理员权限' }, 401);
+    return c.json({ error: 'Admin access required' }, 401);
   }
   await next();
 });

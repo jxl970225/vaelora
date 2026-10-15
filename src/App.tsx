@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BottomBar } from './components/BottomBar';
 import { LoginModal } from './components/LoginModal';
-import { ThemePicker } from './components/ThemePicker';
+import { DescriptionModal } from './components/ThemePicker';
 import { ThemeDetail } from './components/ThemeDetail';
 import { ThemeList } from './components/ThemeList';
 import { Starfield } from './components/Starfield';
-import { deleteImage, fetchThemeImages, fetchThemes } from './lib/api';
+import { deleteImage, fetchThemeImages, fetchThemes, uploadDescription } from './lib/api';
 import { uploadImage, type UploadLevel } from './lib/upload';
 import { goHome, useRoute } from './lib/route';
-import { THEMES } from '../shared/themes';
 import type { ThemeImage, ThemeSummary } from '../shared/types';
 
 interface Job {
@@ -23,6 +22,10 @@ interface Job {
 interface PendingUpload {
   level: UploadLevel;
   themeIndex: number;
+  /** 封面附带的描述，只对 level === 'cover' 有意义 */
+  description?: string;
+  /** 指定固定序号（二级图片补位），不传则追加到末尾 */
+  seq?: number;
 }
 
 export default function App() {
@@ -37,17 +40,20 @@ export default function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
 
   const [showLogin, setShowLogin] = useState(false);
-  const [showPicker, setShowPicker] = useState(false);
+  const [showDesc, setShowDesc] = useState(false);
 
   const [themes, setThemes] = useState<ThemeSummary[]>([]);
   const [themesLoading, setThemesLoading] = useState(true);
 
   const [images, setImages] = useState<ThemeImage[]>([]);
+  const [description, setDescription] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 用 ref 而不是 state：file input 的 onChange 触发时读到的必须是最新值
   const pendingRef = useRef<PendingUpload | null>(null);
+  // 首页空位上传的目标位置（点空位按钮时记下，描述确认后使用）
+  const coverTargetRef = useRef<number | null>(null);
 
   const loadThemes = useCallback(async () => {
     setThemesLoading(true);
@@ -55,7 +61,7 @@ export default function App() {
     try {
       setThemes(await fetchThemes());
     } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败');
+      setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
       setThemesLoading(false);
     }
@@ -67,8 +73,9 @@ export default function App() {
     try {
       const data = await fetchThemeImages(index);
       setImages(data.items);
+      setDescription(data.description);
     } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败');
+      setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
       setDetailLoading(false);
     }
@@ -84,21 +91,26 @@ export default function App() {
     setJobs((prev) => prev.map((job) => (job.key === key ? { ...job, ...patch } : job)));
   };
 
-  function handleUploadClick() {
-    if (route.name === 'theme') {
-      // 二级页：上传的是该主题的图片，自动归属
-      pendingRef.current = { level: 'image', themeIndex: route.index };
-      fileInputRef.current?.click();
-    } else {
-      // 首页：上传的是某个主题的封面，先选主题
-      setShowPicker(true);
-    }
+  // 首页空位按钮：记下目标位置，先弹描述框
+  function handleUploadCover(index: number) {
+    coverTargetRef.current = index;
+    setShowDesc(true);
   }
 
-  function handlePickTheme(themeIndex: number) {
-    setShowPicker(false);
-    pendingRef.current = { level: 'cover', themeIndex };
+  // 描述确认后：打开文件选择器
+  function handleDescConfirm(description: string) {
+    setShowDesc(false);
+    const index = coverTargetRef.current;
+    if (index === null) return;
+    pendingRef.current = { level: 'cover', themeIndex: index, description };
     // 仍在这次点击的手势上下文内，file input 才打得开
+    fileInputRef.current?.click();
+  }
+
+  // 二级页缺号槽位：上传到那个固定序号
+  function handleUploadToSlot(seq: number) {
+    if (route.name !== 'theme') return;
+    pendingRef.current = { level: 'image', themeIndex: route.index, seq };
     fileInputRef.current?.click();
   }
 
@@ -114,7 +126,7 @@ export default function App() {
     const pending = pendingRef.current;
     if (!token || !pending) {
       // 不要静默 return —— 那样用户只看到"点了没反应"，无从排查
-      setError('上传状态丢失，请重新点击上传按钮');
+      setError('Upload state lost — tap the upload button again');
       return;
     }
 
@@ -136,6 +148,7 @@ export default function App() {
           level: pending.level,
           themeIndex: pending.themeIndex,
           token,
+          seq: pending.seq,
           onPreview: (url) => patchJob(job.key, { previewUrl: url }),
           onProgress: (pct) => patchJob(job.key, { progress: pct }),
         });
@@ -143,12 +156,21 @@ export default function App() {
       } catch (e) {
         patchJob(job.key, {
           status: 'error',
-          error: e instanceof Error ? e.message : '上传失败',
+          error: e instanceof Error ? e.message : 'Upload failed',
         });
       }
     }
 
     window.setTimeout(() => setJobs((prev) => prev.filter((job) => job.status !== 'done')), 1200);
+
+    // 封面附带描述时，图片传完再存描述。描述失败不阻塞图片展示，单独提示。
+    if (pending.level === 'cover' && pending.description) {
+      try {
+        await uploadDescription(pending.themeIndex, pending.description, token);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to save description');
+      }
+    }
 
     // 上传完重新拉取当前视图
     if (route.name === 'theme') await loadTheme(route.index);
@@ -158,16 +180,14 @@ export default function App() {
   // ── 删除 ──────────────────────────────────────────
   async function handleDelete(item: ThemeImage) {
     if (!token) return;
-    if (!window.confirm('删除这张图片？此操作不可撤销。')) return;
+    if (!window.confirm('Delete this image? This cannot be undone.')) return;
     try {
       await deleteImage(item.key, token);
       setImages((prev) => prev.filter((p) => p.key !== item.key));
     } catch (e) {
-      setError(e instanceof Error ? e.message : '删除失败');
+      setError(e instanceof Error ? e.message : 'Failed to delete');
     }
   }
-
-  const themeName = route.name === 'theme' ? (THEMES[route.index - 1]?.name ?? '') : '';
 
   return (
     <>
@@ -178,12 +198,17 @@ export default function App() {
           <h1 onClick={goHome} role="presentation">
             Vaelora
           </h1>
+          <p className="header__subtitle">Curated imagery, explored by collection</p>
+          <p className="header__desc">
+            A quiet, growing collection of photographs, gathered over time. New work is added as
+            it comes — wander back every so often.
+          </p>
         </header>
 
         {error && (
           <div className="banner banner--error" role="alert">
             <span>{error}</span>
-            <button type="button" onClick={() => setError(null)} aria-label="关闭">
+            <button type="button" onClick={() => setError(null)} aria-label="Close">
               ✕
             </button>
           </div>
@@ -194,18 +219,21 @@ export default function App() {
             <ThemeList
               themes={themes}
               loading={themesLoading}
+              isAdmin={isAdmin}
               onOpen={(index) => {
                 window.location.hash = `#/theme/${index}`;
               }}
+              onUploadToSlot={handleUploadCover}
             />
           ) : (
             <ThemeDetail
-              themeName={themeName}
               items={images}
+              description={description}
               isAdmin={isAdmin}
               loading={detailLoading}
               onBack={goHome}
               onDelete={(item) => void handleDelete(item)}
+              onUploadToSlot={handleUploadToSlot}
             />
           )}
         </main>
@@ -250,7 +278,6 @@ export default function App() {
         <BottomBar
           isAdmin={isAdmin}
           onRequestLogin={() => setShowLogin(true)}
-          onUploadClick={handleUploadClick}
           onLogout={() => setToken(null)}
         />
 
@@ -264,7 +291,9 @@ export default function App() {
           />
         )}
 
-        {showPicker && <ThemePicker onPick={handlePickTheme} onClose={() => setShowPicker(false)} />}
+        {showDesc && (
+          <DescriptionModal onConfirm={handleDescConfirm} onClose={() => setShowDesc(false)} />
+        )}
       </div>
     </>
   );

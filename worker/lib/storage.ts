@@ -26,6 +26,11 @@ export function imageKey(index: number, seq: number, ext = 'jpg'): string {
   return `${index}/${index}-${seq}.${ext}`;
 }
 
+/** 主题描述文件：{主题号}.json。内容 {"description": "..."} */
+export function metaKey(index: number): string {
+  return `${index}.json`;
+}
+
 /**
  * 图片的对外 URL。
  *
@@ -70,9 +75,9 @@ export async function listAll(bucket: R2Bucket, prefix: string): Promise<R2Objec
   return objects;
 }
 
-/** `1/1-7.jpg` → 7。解析不出来返回 0。 */
+/** `1/1-7.jpg` → 7。只认图片扩展名；解析不出来返回 0。 */
 export function seqFromKey(key: string, index: number): number {
-  const match = new RegExp(`^${index}/${index}-(\\d+)\\.[^.]+$`).exec(key);
+  const match = new RegExp(`^${index}/${index}-(\\d+)\\.(jpg|jpeg|png|webp|gif)$`, 'i').exec(key);
   return match ? Number(match[1]) : 0;
 }
 

@@ -32,7 +32,7 @@ export async function compress(file: File): Promise<Compressed> {
   const ctx = canvas.getContext('2d');
   if (!ctx) {
     bitmap.close();
-    throw new Error('无法创建 canvas 上下文');
+    throw new Error('Failed to create a canvas context');
   }
 
   ctx.drawImage(bitmap, 0, 0, width, height);
@@ -41,7 +41,7 @@ export async function compress(file: File): Promise<Compressed> {
   const blob = await new Promise<Blob | null>((resolve) =>
     canvas.toBlob(resolve, 'image/jpeg', QUALITY)
   );
-  if (!blob) throw new Error('图片编码失败');
+  if (!blob) throw new Error('Failed to encode the image');
 
   return { blob, width, height };
 }

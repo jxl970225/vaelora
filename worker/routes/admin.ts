@@ -18,14 +18,14 @@ function configProblem(env: Env): string | null {
   const missing = (['ADMIN_USER', 'ADMIN_PASSWORD_HASH', 'SESSION_SECRET'] as const).filter(
     (key) => !env[key]?.trim()
   );
-  if (missing.length > 0) return `服务端未配置：${missing.join('、')}`;
+  if (missing.length > 0) return `Missing config: ${missing.join(', ')}`;
 
   // 从终端复制粘贴很容易带上尾部换行，这里统一去掉再判断
   const hash = env.ADMIN_PASSWORD_HASH.trim().toLowerCase();
   if (!SHA256_HEX.test(hash)) {
     return (
-      `ADMIN_PASSWORD_HASH 格式不对：应该是 64 位十六进制的 sha256，` +
-      `当前是 ${hash.length} 位。用 npm run hash-password -- 你的密码 生成后重新粘贴。`
+      `ADMIN_PASSWORD_HASH is malformed: expected a 64-char hex sha256, ` +
+      `got ${hash.length} chars. Generate it with: npm run hash-password -- <your-password>`
     );
   }
 
@@ -62,7 +62,7 @@ admin.post('/login', async (c) => {
 
   if (!ok) {
     // 统一文案，不告诉对方是账号错还是密码错
-    return c.json({ error: '账号或密码错误' }, 401);
+    return c.json({ error: 'Invalid username or password' }, 401);
   }
 
   return c.json({ token: await issueToken(c.env.SESSION_SECRET.trim()) });
