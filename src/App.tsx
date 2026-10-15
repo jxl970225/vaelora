@@ -4,7 +4,7 @@ import { LoginModal } from './components/LoginModal';
 import { DescriptionModal } from './components/ThemePicker';
 import { ThemeDetail } from './components/ThemeDetail';
 import { ThemeList } from './components/ThemeList';
-import { Starfield } from './components/Starfield';
+import { MeadowBackground } from './components/MeadowBackground';
 import { deleteImage, fetchThemeImages, fetchThemes, uploadDescription } from './lib/api';
 import { uploadImage, type UploadLevel } from './lib/upload';
 import { goHome, useRoute } from './lib/route';
@@ -191,7 +191,7 @@ export default function App() {
 
   return (
     <>
-      <Starfield />
+      <MeadowBackground />
 
       <div className="app">
         <header className="header">

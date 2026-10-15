@@ -1,14 +1,15 @@
 :root {
-  --surface: #16161d;
-  --border: #26262f;
-  --text: #ececf1;
-  --muted: #8b8b9a;
-  --accent: #6d5efc;
-  --danger: #ff5a5f;
+  --bg: #f5efe0;
+  --surface: #fdfaf3;
+  --border: #e4dcc8;
+  --text: #3a3228;
+  --muted: #8a7f6d;
+  --accent: #b03a2e;
+  --danger: #c25450;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-top: env(safe-area-inset-top, 0px);
 
-  color-scheme: dark;
+  color-scheme: light;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
 }
@@ -21,14 +22,14 @@ html,
 body {
   margin: 0;
   /* 兜底底色，渐变在 body::before 上 */
-  background: #050514;
+  background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%;
 }
 
 /*
- * 深空渐变 + 双层星云。
+ * 草原背景图，铺满视口。
  * 用 fixed 伪元素而不是 background-attachment: fixed —— 后者在 iOS Safari 上
  * 要么被忽略、要么渲染异常。固定在视口同时避免长页面把渐变拉伸变形。
  */
@@ -38,20 +39,86 @@ body::before {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background:
-    radial-gradient(ellipse 80% 50% at 20% 10%, rgba(88, 80, 200, 0.25), transparent 60%),
-    radial-gradient(ellipse 60% 40% at 85% 80%, rgba(60, 100, 220, 0.18), transparent 60%),
-    linear-gradient(180deg, #050514 0%, #0a0a2a 55%, #12123a 100%);
+  background: url('https://aka.doubaocdn.com/s/xfaVwvzqHU') no-repeat center center;
+  background-size: cover;
 }
 
-.starfield {
+/* ── 漫天花瓣 + 蝴蝶 ─────────────────────── */
+.meadow {
   position: fixed;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-  z-index: 1;
+  /* 高于内容层（.app 是 z-index 2），低于模态框（z-index 10）——
+     花瓣浮于图片之上，但不会挡住登录框 */
+  z-index: 5;
   pointer-events: none;
+  overflow: hidden;
+}
+
+.meadow__petals,
+.meadow__butterflies {
+  position: absolute;
+  inset: 0;
+}
+
+.petal {
+  position: absolute;
+  top: -30px;
+  border-radius: 150% 0 150% 0;
+  opacity: 0;
+  animation-name: petal-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.petal--white {
+  background: radial-gradient(ellipse at 30% 30%, #fff 0%, #f0e6c8 100%);
+}
+
+.petal--yellow {
+  background: radial-gradient(ellipse at 30% 30%, #f9e07a 0%, #e8b530 100%);
+}
+
+.petal--pink {
+  background: radial-gradient(ellipse at 30% 30%, #f8cdd4 0%, #d97a8a 100%);
+}
+
+@keyframes petal-fall {
+  0%   { transform: translate(0, -30px) rotate(0deg); opacity: 0; }
+  8%   { opacity: 0.9; }
+  25%  { transform: translate(60px, 25vh) rotate(120deg); }
+  50%  { transform: translate(-40px, 55vh) rotate(240deg); }
+  75%  { transform: translate(80px, 80vh) rotate(320deg); }
+  90%  { opacity: 0.6; }
+  100% { transform: translate(-30px, 110vh) rotate(420deg); opacity: 0; }
+}
+
+.butterfly {
+  position: absolute;
+  width: 22px;
+  height: 18px;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  opacity: 0;
+  animation: butterfly-fly 20s linear infinite;
+}
+
+.butterfly--b1 { background: radial-gradient(ellipse, #ffb6c1, #ff8fa8); animation-delay: 0s; }
+.butterfly--b2 { background: radial-gradient(ellipse, #fff8dc, #f7d460); animation-delay: 7s; animation-duration: 24s; }
+.butterfly--b3 { background: radial-gradient(ellipse, #d4c9e8, #9b8ab8); animation-delay: 14s; animation-duration: 28s; }
+
+@keyframes butterfly-fly {
+  0%   { transform: translate(-10vw, 85vh) scale(0.7); opacity: 0; }
+  10%  { opacity: 0.9; }
+  50%  { transform: translate(50vw, 45vh) scale(1) translateX(40px); }
+  90%  { opacity: 0.8; }
+  100% { transform: translate(110vw, 15vh) scale(0.9); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .petal,
+  .butterfly {
+    animation: none;
+    display: none;
+  }
 }
 
 .app {
@@ -72,8 +139,6 @@ body::before {
   margin: 0 auto 6px;
   font-size: 22px;
   letter-spacing: 0.05em;
-  /* 星空底上的光晕，和标题一起压住深色背景 */
-  text-shadow: 0 0 24px rgba(150, 170, 255, 0.45);
   cursor: pointer;
   width: fit-content;
 }
@@ -108,7 +173,7 @@ body::before {
 .banner--error {
   background: rgba(255, 90, 95, 0.12);
   border: 1px solid rgba(255, 90, 95, 0.35);
-  color: #ffb3b5;
+  color: #b0453a;
 }
 
 .banner button {
@@ -158,7 +223,7 @@ body::before {
   width: 100%;
   aspect-ratio: 16 / 9;
   object-fit: cover;
-  background: rgba(18, 18, 32, 0.82);
+  background: rgba(255, 255, 255, 0.65);
 }
 
 /* 首页空位：管理员上传模式下，缺封面的位置显示这个按钮 */
@@ -170,7 +235,7 @@ body::before {
   aspect-ratio: 16 / 9;
   border: 1px dashed var(--border);
   border-radius: 12px;
-  background: rgba(18, 18, 32, 0.4);
+  background: rgba(255, 255, 255, 0.5);
   color: var(--muted);
   cursor: pointer;
 }
@@ -244,7 +309,7 @@ body::before {
   position: relative;
   border-radius: 10px;
   overflow: hidden;
-  background: rgba(18, 18, 32, 0.82);
+  background: rgba(255, 255, 255, 0.65);
 }
 
 .card__frame {
@@ -292,7 +357,7 @@ body::before {
   aspect-ratio: 1 / 1;
   border: 1px dashed var(--border);
   border-radius: 10px;
-  background: rgba(18, 18, 32, 0.4);
+  background: rgba(255, 255, 255, 0.5);
   color: var(--muted);
   cursor: pointer;
 }
@@ -309,7 +374,8 @@ body::before {
 }
 
 .card__slot-seq {
-  font-size: 12px;
+  font-size: 14px;
+  color: var(--text);
 }
 
 .more {
@@ -341,7 +407,7 @@ body::before {
   bottom: 0;
   padding: 12px 16px calc(12px + var(--safe-bottom));
   /* 半透明遮罩而不是实色：底部栏压在星空上，实色会切出一条突兀的暗带 */
-  background: linear-gradient(to top, rgba(6, 6, 22, 0.82) 55%, transparent);
+  background: linear-gradient(to top, var(--bg) 60%, transparent);
 }
 
 /* 未登录：隐形长按区。不显示任何文案，只在按住时出现一条细进度线。 */
@@ -408,7 +474,7 @@ body::before {
   gap: 8px;
   list-style: none;
   border-radius: 12px;
-  background: rgba(22, 22, 29, 0.94);
+  background: rgba(253, 250, 243, 0.95);
   border: 1px solid var(--border);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
@@ -444,7 +510,7 @@ body::before {
 
 .job__error {
   font-size: 12px;
-  color: #ffb3b5;
+  color: #b0453a;
 }
 
 .job__bar {
@@ -495,7 +561,7 @@ body::before {
 .modal__error {
   margin: 0 0 12px;
   font-size: 13px;
-  color: #ffb3b5;
+  color: #b0453a;
 }
 
 .modal__note {
@@ -529,7 +595,7 @@ body::before {
   padding: 0 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: #101016;
+  background: #ffffff;
   color: var(--text);
   font-size: 16px; /* 小于 16px 时 iOS 会自动放大页面 */
 }
@@ -545,7 +611,7 @@ body::before {
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: #101016;
+  background: #ffffff;
   color: var(--text);
   font-size: 16px; /* 小于 16px 时 iOS 会自动放大页面 */
   line-height: 1.5;
@@ -604,7 +670,7 @@ body::before {
   min-height: 44px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: #101016;
+  background: #ffffff;
   color: var(--text);
   font-size: 14px;
   cursor: pointer;
@@ -616,5 +682,5 @@ body::before {
 
 .picker__item--selected {
   border-color: var(--accent);
-  background: rgba(109, 94, 252, 0.15);
+  background: rgba(176, 58, 46, 0.12);
 }
