@@ -39,7 +39,8 @@ body::before {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background: url('https://aka.doubaocdn.com/s/xfaVwvzqHU') no-repeat center center;
+  /* 本地打包的背景图，不再依赖会过期的外链 */
+  background: url('/meadow.jpg') no-repeat center center;
   background-size: cover;
 }
 
