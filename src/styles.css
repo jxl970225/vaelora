@@ -194,6 +194,27 @@ body::before {
   color: var(--muted);
 }
 
+/* ── 首页底部：联系方式，纯黑字体 ── */
+.footer {
+  margin-top: 28px;
+  padding: 24px 0 4px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  color: #000;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.9;
+}
+
+.footer p {
+  margin: 0;
+}
+
+.footer__copyright {
+  color: #000;
+  opacity: 0.75;
+}
+
 /* ── 首页：一级图片（封面），纵向一列，纯图无名字无编号 ── */
 .covers {
   display: flex;
@@ -225,6 +246,17 @@ body::before {
   aspect-ratio: 16 / 9;
   object-fit: cover;
   background: rgba(255, 255, 255, 0.65);
+}
+
+/* 封面图下方的文字介绍：半透明浅底，压在草原背景上也能看清 */
+.cover__desc {
+  display: block;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: left;
+  color: var(--text);
+  background: rgba(253, 250, 243, 0.92);
 }
 
 /* 首页空位：管理员上传模式下，缺封面的位置显示这个按钮 */

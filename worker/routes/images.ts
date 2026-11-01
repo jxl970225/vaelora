@@ -11,6 +11,20 @@ function indexFromCoverKey(key: string): number {
   return match ? Number(match[1]) : 0;
 }
 
+/** 读取 {n}.json 里的描述文字；读不到或格式不对返回 null。 */
+async function readDescription(bucket: R2Bucket, index: number): Promise<string | null> {
+  const meta = await bucket.get(metaKey(index));
+  if (!meta) return null;
+  try {
+    const parsed = JSON.parse(await meta.text()) as { description?: unknown };
+    return typeof parsed.description === 'string' && parsed.description.trim()
+      ? parsed.description.trim()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 首页：8 个固定位置的一级图片（封面）。
  *
@@ -32,6 +46,15 @@ images.get('/themes', async (c) => {
     listed.delimitedPrefixes.map((p) => Number(p.replace(/\/$/, ''))).filter((n) => n > 0)
   );
 
+  // 描述存在 {n}.json，逐条读取。最多 8 个、都是小文件，并发取不伤分毫。
+  const descriptionByIndex = new Map<number, string | null>();
+  await Promise.all(
+    Array.from({ length: THEME_COUNT }, async (_, i) => {
+      const index = i + 1;
+      descriptionByIndex.set(index, await readDescription(c.env.BUCKET, index));
+    })
+  );
+
   const themes: ThemeSummary[] = [];
   for (let index = 1; index <= THEME_COUNT; index++) {
     const cover = coverByIndex.get(index);
@@ -40,6 +63,7 @@ images.get('/themes', async (c) => {
       // 带 ?v= 是为了封面被替换后能穿透缓存 —— 文件名固定意味着缓存不会自己失效
       coverUrl: cover ? `${publicUrl(c.env, cover.key)}?v=${cover.uploaded.getTime()}` : null,
       hasImages: folderIndexes.has(index),
+      description: descriptionByIndex.get(index) ?? null,
     });
   }
 
@@ -68,19 +92,7 @@ images.get('/themes/:index', async (c) => {
     }));
 
   // 位置描述存在 {n}.json，是可选字段。读不到或缺文件时返回 null。
-  const meta = await c.env.BUCKET.get(metaKey(index));
-  let description: string | null = null;
-  if (meta) {
-    try {
-      const parsed = JSON.parse(await meta.text()) as { description?: unknown };
-      description =
-        typeof parsed.description === 'string' && parsed.description.trim()
-          ? parsed.description.trim()
-          : null;
-    } catch {
-      description = null;
-    }
-  }
+  const description = await readDescription(c.env.BUCKET, index);
 
   return c.json({ index, description, items });
 });

@@ -36,6 +36,9 @@ export function ThemeList({ themes, loading, isAdmin, onOpen, onUploadToSlot }: 
               aria-label="Open collection"
             >
               <img className="cover__img" src={theme.coverUrl} alt="" decoding="async" />
+              {theme.description && (
+                <span className="cover__desc">{theme.description}</span>
+              )}
             </button>
           ) : (
             <button

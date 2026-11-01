@@ -238,6 +238,13 @@ export default function App() {
           )}
         </main>
 
+        {route.name === 'home' && (
+          <footer className="footer">
+            <p>Email: hello@example.com</p>
+            <p className="footer__copyright">© 2026 Vaelora</p>
+          </footer>
+        )}
+
         {jobs.length > 0 && (
           <ul className="jobs">
             {jobs.map((job) => (

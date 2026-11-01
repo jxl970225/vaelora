@@ -4,6 +4,8 @@ export interface ThemeSummary {
   coverUrl: string | null;
   /** 该位置目录下有没有二级图片 */
   hasImages: boolean;
+  /** 该位置的描述文字，展示在首页封面图下方；没有则 null */
+  description: string | null;
 }
 
 /** 二级：主题目录下的一张图片 */
